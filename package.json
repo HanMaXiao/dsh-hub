@@ -1,0 +1,74 @@
+{
+  "name": "@hanmaxiao/dsh-hub",
+  "version": "1.0.0",
+  "description": "Hub: one floating panel for TODO, Note and Prompt — three tabs, full CRUD, edge docking, grid and list views.",
+  "license": "MIT",
+  "type": "module",
+  "icon": "./icon.svg",
+  "author": {
+    "name": "HanMaXiao"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/HanMaXiao/dsh-hub.git"
+  },
+  "bugs": {
+    "url": "https://github.com/HanMaXiao/dsh-hub/issues"
+  },
+  "homepage": "https://github.com/HanMaXiao/dsh-hub#readme",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "cordis",
+    "deepseek-harness",
+    "todo",
+    "notes",
+    "prompt"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./remote": "./remote.js",
+    "./typert": "./typert.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "host.js",
+    "remote.js",
+    "typert.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "lib/*.js"
+  ],
+  "dependencies": {
+    "@deepseek-ai/dsh-typert-protocol": "0.1.7-rc.2"
+  },
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-api-remotes",
+        "@deepseek-ai/dsh-client-locale"
+      ]
+    }
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-typert-loader": "0.1.7-rc.2"
+  }
+}

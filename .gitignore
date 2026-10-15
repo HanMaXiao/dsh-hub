@@ -1,0 +1,18 @@
+# Dependencies
+node_modules/
+
+# Anything a real run leaves behind
+*.log
+.DS_Store
+Thumbs.db
+
+# Local secrets and machine-specific overrides
+.env
+.env.*
+!.env.example
+
+# Editor and OS noise
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp

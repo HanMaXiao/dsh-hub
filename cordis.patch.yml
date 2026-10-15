@@ -1,0 +1,30 @@
+# Hub bundle patch.
+#
+# One Host row (`hub-core`). Its `apply` mounts the Typert Remote described by
+# `./typert.js`, which is the only bridge the browser half has: `host.call` and
+# `styles.insert` belong to the `cordis_run` dynamic-plugin runtime and are NOT
+# available to a `dsh.client` bundle. The Client half is served from the same
+# package through `exports["./client"]`, so this single row carries both faces.
+#
+# `dataDir` and `maxImageBytes` are the tunables. Both are validated Config
+# fields rather than constants so a user can point the store at a synced
+# directory, or raise the per-image ceiling on a machine that needs it,
+# without editing this file — the user's patch layer survives upgrades.
+#
+# `maxImageBytes` is the DECODED byte ceiling for one stored image, measured
+# before base64 encoding. The ceiling is a real limit and not a courtesy: the
+# whole store is one JSON document that `list` reads whole, so the encoded size
+# is what every panel open pays. base64 inflates by about a third, so the
+# default 2 MiB per image costs roughly 2.7 MiB in the document.
+#
+# Editing this file's JS does NOT take effect until the process restarts: the
+# Loader keeps the plugin instance it first imported, and Node's ESM cache is
+# keyed by the resolved module URL. Reinstall, enable/disable, a new row id, a
+# changed `exports` target, a subpath specifier and even a new directory were
+# each measured on the sibling bundles and none of them reloads it.
+- insert:
+    - id: hub-core
+      name: '@hanmaxiao/dsh-hub'
+      config:
+        dataDir: ''
+        maxImageBytes: 2097152
