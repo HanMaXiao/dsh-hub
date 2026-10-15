@@ -43,26 +43,36 @@ function openFails(dir, maxImageBytes) {
 }
 
 // --- dataDir resolution ----------------------------------------------------
+//
+// The fixtures are built with `path.join`, never with literal separators:
+// `resolveDataDir` is written against `node:path`, so a hard-coded `\\`
+// expectation passes on Windows and fails everywhere else. A CI run on Linux
+// is the only thing that notices, and a Windows-only assertion is exactly the
+// kind that gets added without anyone being able to see it fail.
+
+const HOME = path.join(path.sep, 'home', 'runner')
+const DSH_ROOT = path.join(path.sep, 'opt', 'dsh')
 
 test('an empty dataDir follows DSH_HOME', () => {
-  const env = { DSH_HOME: 'C:\\profiles\\main' }
-  assert.equal(resolveDataDir('', env, 'C:\\users\\x'), path.resolve('C:\\profiles\\main\\plugin-data\\dsh-hub'))
+  const env = { DSH_HOME: DSH_ROOT }
+  assert.equal(resolveDataDir('', env, HOME), path.resolve(DSH_ROOT, 'plugin-data', 'dsh-hub'))
 })
 
 test('an empty DSH_HOME falls back to the home directory', () => {
-  assert.equal(resolveDataDir('', { DSH_HOME: '' }, 'C:\\users\\x'), path.resolve('C:\\users\\x\\.dsh\\plugin-data\\dsh-hub'))
-  assert.equal(resolveDataDir('', {}, 'C:\\users\\x'), path.resolve('C:\\users\\x\\.dsh\\plugin-data\\dsh-hub'))
+  const expected = path.resolve(HOME, '.dsh', 'plugin-data', 'dsh-hub')
+  assert.equal(resolveDataDir('', { DSH_HOME: '' }, HOME), expected)
+  assert.equal(resolveDataDir('', {}, HOME), expected)
 })
 
 test('a non-empty dataDir is resolved, so a relative path means the same thing anywhere', () => {
-  assert.equal(resolveDataDir('sync/hub', { DSH_HOME: 'ignored' }, 'C:\\users\\x'), path.resolve('sync/hub'))
+  assert.equal(resolveDataDir('sync/hub', { DSH_HOME: 'ignored' }, HOME), path.resolve('sync/hub'))
 })
 
 test('a blank dataDir is treated as unset, not as a relative path', () => {
   // A patch written as `dataDir: ''` and one written with stray whitespace mean
   // the same thing; both must land in the profile directory.
-  assert.equal(resolveDataDir('   ', {}, 'C:\\users\\x'), path.resolve('C:\\users\\x\\.dsh\\plugin-data\\dsh-hub'))
-  assert.equal(resolveDataDir('   ', { DSH_HOME: 'C:\\profiles\\main' }, 'C:\\users\\x'), path.resolve('C:\\profiles\\main\\plugin-data\\dsh-hub'))
+  assert.equal(resolveDataDir('   ', {}, HOME), path.resolve(HOME, '.dsh', 'plugin-data', 'dsh-hub'))
+  assert.equal(resolveDataDir('   ', { DSH_HOME: DSH_ROOT }, HOME), path.resolve(DSH_ROOT, 'plugin-data', 'dsh-hub'))
 })
 
 // --- the empty and the normal cases ---------------------------------------
@@ -134,7 +144,14 @@ test('update and remove return the item as it is stored', () => {
   assert.equal(updated.done, true)
   assert.equal(updated.priority, 'high')
   assert.equal(updated.createdAt, created.createdAt)
-  assert.notEqual(updated.updatedAt, created.updatedAt)
+  // `updatedAt` is wall-clock time, so a create and an update inside the same
+  // millisecond legitimately share a stamp. What must hold on every machine is
+  // that the edit never moves `updatedAt` backwards — asserting the two differ
+  // instead makes this test fail on a fast runner and pass on a slow one.
+  assert.ok(
+    Date.parse(updated.updatedAt) >= Date.parse(created.updatedAt),
+    `updatedAt went backwards: ${created.updatedAt} -> ${updated.updatedAt}`,
+  )
   const removed = store.remove(created.id)
   assert.equal(removed.id, created.id)
   assert.deepEqual(store.list(), [])
