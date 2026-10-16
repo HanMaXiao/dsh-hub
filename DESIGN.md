@@ -131,7 +131,7 @@ available to a `dsh.client` bundle. The only bridge is a **Typert Remote**:
 
 ```
 TODO   { id, kind:'todo', title, description, category, priority, done,
-         attachments:[{name,mime,size,dataUrl}], note,
+         completedAt, attachments:[{name,mime,size,dataUrl}], note,
          createdAt, updatedAt }
 NOTE   { id, kind:'note',  title, text, images:[{name,mime,size,dataUrl}],
          createdAt, updatedAt }
@@ -140,6 +140,17 @@ PROMPT { id, kind:'prompt',title, text, images:[{name,mime,size,dataUrl}],
 ```
 
 `priority` is one of `low | normal | high | urgent`. `done` is a boolean.
+
+**`completedAt` is an ISO timestamp owned by the Host, and it is derived from
+`done` rather than accepted from a patch.** Finishing a TODO stamps it, reopening
+clears it, and a patch that touches neither leaves it alone — so editing a
+finished task does not restamp it and jump it to the top of the finished list.
+An unfinished TODO carries `''` however it arrived, because a stamp on an open
+task would order it by a moment that has not happened. Like `title` it is
+additive — a document written before it existed reads as finished-at-unknown —
+so it needs **no schema bump**, and it belongs in the §5 key list the Client
+checks, which is what makes an older Host say so instead of dropping the field.
+A TODO created already `done` completes as it was created.
 
 **`title` is optional and stored, not derived.** It is trimmed, and an absent or
 blank one is stored as `''` — a document written before the field existed reads
@@ -183,8 +194,13 @@ the form carries `标题`.
 **Direction.** `递增` / `递减`, ascending = name A→Z, date old→new, size
 small→large, priority low→high. Descending inverts.
 
-**Grouping.** `分组依据`: TODO → `无 / 类别 / 优先级 / 完成状态`;
-Note & Prompt → `无 / 含图片 / 纯文字`.
+**Grouping.** `分组依据`: TODO → `无 / 类别 / 优先级`; Note & Prompt →
+`无 / 含图片 / 纯文字`.
+
+Obsidian's `完成状态` is **dropped from the TODO menu**: completion is no longer
+something a menu arranges, it is the frame the list is built in — see *Regions*
+below. Offering it would put a group header inside a region that is already one
+completion state, which says the same thing twice.
 
 **Tiebreak.** Every comparator ends with `createdAt` then `id` ascending, so
 equal keys never reorder between renders.
@@ -192,6 +208,36 @@ equal keys never reorder between renders.
 **Size** is computed from the item's own bytes — title, content, note and
 attachment bytes — and is computed in `client.js`; the Host does not store a
 denormalised size. The title counts because it is stored bytes like any other.
+
+### 6.1 Regions
+
+A TODO is **open or finished**, and the two are never one list. The unfinished
+half answers "what is left"; the finished half is a log of what was done. One
+list sorted by whatever was picked buries an unfinished task among finished ones
+and shows neither half whole.
+
+- The split runs **before** search, filter, sort and grouping, so all four still
+  apply *inside* each region rather than across the seam. Choosing `类别` groups
+  each half by category.
+- **The unfinished region follows the sort menu.** The finished region orders by
+  `completedAt` descending — a log whose newest entry is not at the top is not a
+  log — whatever the menu says. The menu is not contradicted quietly: it is the
+  finished region that overrides, and `completedAt` is deliberately not one of
+  the offered fields.
+- A region with nothing in it is **not rendered at all**, so a filter that hides
+  one side leaves no empty header behind, and the finished region appears at the
+  moment there is something to put in it.
+- Both regions start **folded**, showing their label and count. The counts are
+  the point of the split, and a list that opens itself is the mixing it
+  replaces. The choice is a presentation one, so it is persisted like `view`.
+- A region **opens itself when something lands in it** — a finished task, or a
+  new one. A task that moves while its region is shut has moved invisibly: the
+  count would move and nothing else would, which reads as a miscount rather than
+  as a task finishing.
+- A folded region is `visibility: hidden` as well as collapsed, so its items are
+  not left focusable and still announced.
+- Note and Prompt have no `done`, so they render as **one unlabelled region**
+  with no header and nothing to fold.
 
 ## 7. Client module — ONE file
 
@@ -227,6 +273,8 @@ not optional.
   is four activations to flip one boolean.
 - **Views**: grid and list, switchable, persisted, each with its own loading
   state.
+- **Regions**: a TODO list is two collapsible regions, unfinished above finished
+  (§6.1), each folded to its label and count until it has something to show.
 - **Grid**: `repeat(auto-fill, minmax(min(100%, var(--hub-card-min)), 1fr))`
   plus a `ResizeObserver`, so the n×m layout follows the window.
 - **Theme**: `ctx.get('theme')?.setTheme('light' | 'dark' | 'system')`
@@ -272,6 +320,7 @@ pointer or the keyboard just did; there is no ambient animation in the panel.
 | what | how |
 |---|---|
 | panel expand / collapse | surface rises and settles, 300ms `cubic-bezier(.22,.61,.36,1)` |
+| region fold / unfold | `grid-template-rows` 0fr→1fr, **90ms** — under 100ms on purpose: a fold is the user confirming a click, not the panel performing a gesture, and slower reads as lag on the press |
 | item hover / focus | fill, border and a 2px accent bar scaling in from the leading edge, 110ms |
 | tab change | one indicator element translates between the three tabs, 190ms |
 | menu open | scale `.97` → 1 from the trigger corner, 110ms |

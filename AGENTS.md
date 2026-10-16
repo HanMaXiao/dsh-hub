@@ -194,9 +194,19 @@ concrete reason; drop none of them for style.
   **deliberately absent** — no model field backs it; do not render an empty
   entry for it. Obsidian's `标题` is **not** in the menu either, and now for the
   opposite reason: `标题` is the editable field and `名称` is derived from it, so
-  a menu entry for each would be two names for one column. Every comparator ends
-  with `createdAt` then `id` ascending, so equal keys never reorder between
+  a menu entry for each would be two names for one column. `完成状态` is gone for
+  a third reason: completion is the frame the TODO list is built in
+  ([DESIGN.md §6.1](DESIGN.md)), so a menu that arranges it would put a group
+  header inside a region that already is one completion state. Every comparator
+  ends with `createdAt` then `id` ascending, so equal keys never reorder between
   renders.
+- **`completedAt` is the Host's, and is derived from `done`.** The finished
+  region is ordered by it, which makes it a durable fact and puts it on the Host
+  side of the ownership table beside `createdAt`. It is stamped when a TODO is
+  finished and cleared when one is reopened, and is **never** accepted from a
+  patch: a Client-supplied timestamp is a second source for a fact the store
+  owns, and restamping a finished task on every edit would make it jump the
+  finished list. Editing a finished TODO must leave it where it is.
 - **An empty `catch` names the error and why** and keeps its `try` to one
   statement.
 - **Comments stay local.** Do not restate code, expand unrelated comments or
