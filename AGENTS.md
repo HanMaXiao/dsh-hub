@@ -84,18 +84,22 @@ concrete reason; drop none of them for style.
 - **One app, one seat: `shell.overlay` as `hub.panel`, and nothing else.** Use a
   **fresh** id — reusing a shipped id replaces that cell — and never append a
   second application tree to `document.body`.
-- **A full-width rail must clear the window chrome.** The shell draws a
-  full-width, drag-enabled titlebar across the top of the window
+- **There is no top edge, and that is load bearing.** The application owns the
+  top of its window: a full-width, drag-enabled titlebar
   (`[data-windows-titlebar] .frame::before` — `inset: 0 0 auto`,
-  `-webkit-app-region: drag`; 48px of traffic-light clearance on macOS) and
-  publishes two offsets for it: `--dsh-frame-chrome-top` is the chrome's own
-  height, `--dsh-frame-overlay-top` adds 20px of breathing room for overlays
-  floating free of the frame. A **docked** rail reads the first — it is an edge,
-  not a floating overlay, so it sits flush with no gap — falling back to
-  `--dsh-frame-top-clearance` for macOS. Never hardcode an offset: inside the
-  drag region the rail paints under the titlebar *and* the pointer never reaches
-  it, so hover-to-expand silently stops working on the top edge only — an
-  edge-only symptom with no error anywhere.
+  `-webkit-app-region: drag`) and, below it, the conversation's own title row.
+  A rail there either lands inside the drag region — where the pointer never
+  reaches it, so hover-to-expand silently stops working on that edge alone — or,
+  once cleared of it, covers the conversation's title. Neither raises an error.
+  Withdrawing the edge beats special-casing it; a stored `top` preference falls
+  back to `right` through the same `EDGES.includes` check the other preferences
+  use. Read the other three edges' chrome off `--dsh-frame-chrome-top`, never a
+  hardcoded offset.
+- **Only the handle opens the panel.** `expand` lives on the handle, not on the
+  rail. A left or right rail is the whole window height, so expanding on the
+  rail's `pointerenter` opens the panel under a pointer that never touched the
+  handle. `onPointerLeave` stays on the rail so moving from the handle into the
+  panel does not start the idle countdown.
 - **Left and right run their handle and surface along a row.** Top and bottom do,
   and the surface's `calc(100% - var(--hub-handle-open))` only means anything when
   the handle is its neighbour. A column stacks the two instead: the panel ends

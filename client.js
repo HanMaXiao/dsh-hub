@@ -85,7 +85,6 @@ window.__ModuleLoader__.load({
       'tab.todo': 'TODO',
       'tab.note': 'Note',
       'tab.prompt': 'Prompt',
-      'dock.top': '停靠到上边',
       'dock.right': '停靠到右边',
       'dock.bottom': '停靠到下边',
       'dock.left': '停靠到左边',
@@ -176,7 +175,6 @@ window.__ModuleLoader__.load({
       'tab.todo': 'TODO',
       'tab.note': 'Note',
       'tab.prompt': 'Prompt',
-      'dock.top': 'Dock to the top edge',
       'dock.right': 'Dock to the right edge',
       'dock.bottom': 'Dock to the bottom edge',
       'dock.left': 'Dock to the left edge',
@@ -283,7 +281,6 @@ window.__ModuleLoader__.load({
       chevronRight: [{ t: 'path', a: { d: 'M9.5 6l6 6-6 6' } }],
       chevronLeft: [{ t: 'path', a: { d: 'M14.5 6l-6 6 6 6' } }],
       chevronDown: [{ t: 'path', a: { d: 'M6 9.5l6 6 6-6' } }],
-      dockTop: [{ t: 'path', a: { d: 'M4.5 15.5h15M12 15.5V5M12 5l-4 4M12 5l4 4' } }],
       dockRight: [{ t: 'path', a: { d: 'M9 4.5v15M9 12h10M19 12l-4-4M19 12l-4 4' } }],
       dockBottom: [{ t: 'path', a: { d: 'M4.5 8.5h15M12 8.5V19M12 19l-4-4M12 19l4-4' } }],
       dockLeft: [{ t: 'path', a: { d: 'M15 4.5v15M15 12H5M5 12l4-4M5 12l4 4' } }],
@@ -379,19 +376,11 @@ window.__ModuleLoader__.load({
   --hub-handle-open: ${HANDLE_OPEN}px;
   --hub-tab-index: 0;
 
-  /* Where the top rail starts: flush against the bottom of the window chrome.
-     The shell draws a full-width, drag-enabled titlebar across the top
-     (--dsh-windows-titlebar-height, or 48px of traffic-light clearance on
-     macOS) and publishes two offsets for it. --dsh-frame-chrome-top is that
-     chrome's own height, and --dsh-frame-overlay-top is it plus 20px of
-     breathing room for overlays that float free of the frame. The rail is not
-     floating free — it is a docked edge — so it takes the first and sits flush,
-     with no gap under the titlebar. The second is the fallback for macOS, which
-     publishes only the clearance.
-     The offset is load bearing either way: inside the drag region the rail
-     paints under the titlebar *and* the pointer never reaches it, so
-     hover-to-expand silently stops working on the top edge only. */
-  --hub-top-inset: var(--dsh-frame-chrome-top, var(--dsh-frame-top-clearance, 0px));
+  /* How much of the window's top and bottom the panel stays clear of. The
+     shell publishes its own chrome height (--dsh-frame-chrome-top); 24px is the
+     floor for hosts that publish nothing. Only the left and right panels read
+     it, and only to keep their cap from outgrowing a short window. */
+  --hub-edge-clearance: var(--dsh-frame-chrome-top, 24px);
 
   /* One easing, three durations. Every transition below is a reply to
      something the pointer or the keyboard just did. */
@@ -435,11 +424,9 @@ window.__ModuleLoader__.load({
 }
 .hub-root[data-edge="left"] { left: 0; }
 .hub-root[data-edge="right"] { right: 0; flex-direction: row-reverse; }
-.hub-root[data-edge="top"], .hub-root[data-edge="bottom"] {
-  left: 0; right: 0; height: var(--hub-handle-thickness); flex-direction: row;
+.hub-root[data-edge="bottom"] {
+  left: 0; right: 0; bottom: 0; height: var(--hub-handle-thickness); flex-direction: row;
 }
-.hub-root[data-edge="top"] { top: var(--hub-top-inset); }
-.hub-root[data-edge="bottom"] { bottom: 0; }
 
 /* The collapsed handle sits at the middle of its edge — the one place the
    pointer will look for it. Nothing else in the rail is rendered while
@@ -459,13 +446,9 @@ window.__ModuleLoader__.load({
      both ends and lines up with the handle's own position. */
   top: 50%;
   transform: translateY(-50%);
-  height: min(560px, calc(100vh - 2 * var(--hub-top-inset)));
+  height: min(560px, calc(100vh - 2 * var(--hub-edge-clearance)));
 }
-.hub-root[data-expanded="true"][data-edge="top"],
 .hub-root[data-expanded="true"][data-edge="bottom"] { height: min(560px, 74vh); }
-/* The top rail starts below the window chrome, so its height is measured from
-   there: the panel must still end inside the viewport, not run off the bottom. */
-.hub-root[data-expanded="true"][data-edge="top"] { height: min(560px, calc(74vh - var(--hub-top-inset))); }
 
 /* --------------------------------------------------------------------------
    The handle. It is the panel's only affordance and what the user sees for
@@ -502,11 +485,9 @@ window.__ModuleLoader__.load({
 }
 .hub-root[data-edge="left"] .hub-handle::before,
 .hub-root[data-edge="right"] .hub-handle::before { width: 2px; height: 56px; }
-.hub-root[data-edge="top"] .hub-handle,
 .hub-root[data-edge="bottom"] .hub-handle {
   height: var(--hub-handle-thickness); width: 176px; align-self: center;
 }
-.hub-root[data-edge="top"] .hub-handle::before,
 .hub-root[data-edge="bottom"] .hub-handle::before { width: 56px; height: 2px; }
 
 .hub-root[data-edge="left"] .hub-handle {
@@ -516,10 +497,6 @@ window.__ModuleLoader__.load({
 .hub-root[data-edge="right"] .hub-handle {
   border-top: 1px solid var(--hub-line-strong); border-bottom: 1px solid var(--hub-line-strong);
   border-top-left-radius: 7px; border-bottom-left-radius: 7px;
-}
-.hub-root[data-edge="top"] .hub-handle {
-  border-left: 1px solid var(--hub-line-strong); border-right: 1px solid var(--hub-line-strong);
-  border-bottom-left-radius: 7px; border-bottom-right-radius: 7px;
 }
 .hub-root[data-edge="bottom"] .hub-handle {
   border-left: 1px solid var(--hub-line-strong); border-right: 1px solid var(--hub-line-strong);
@@ -536,21 +513,25 @@ window.__ModuleLoader__.load({
   width: var(--hub-handle-open); flex: 0 0 auto;
   border-top: none; border-bottom: none;
 }
-.hub-root[data-expanded="true"][data-edge="top"] .hub-handle,
 .hub-root[data-expanded="true"][data-edge="bottom"] .hub-handle {
   position: absolute; left: 0; right: 0; width: auto; align-self: stretch;
   height: var(--hub-handle-open); flex: 0 0 auto;
   border-left: none; border-right: none;
 }
+/* The grip is absolutely positioned, so where it sits across the rail is its
+   static position — which a row-reverse container resolves differently from a
+   plain one, and browsers disagree about the edges. Pin it to the docked side
+   outright and let the surface take the whole box instead. */
+.hub-root[data-expanded="true"][data-edge="left"] .hub-handle { left: 0; right: auto; }
+.hub-root[data-expanded="true"][data-edge="right"] .hub-handle { right: 0; left: auto; }
+.hub-root[data-expanded="true"] .hub-surface { width: 100%; height: 100%; }
 /* The rail's inner edge is the one line that says "this strip is a control",
    so it is a step stronger than the panel's own hairline. */
 .hub-root[data-expanded="true"][data-edge="left"] .hub-handle { border-right: 1px solid var(--dsw-alias-border-l3); }
 .hub-root[data-expanded="true"][data-edge="right"] .hub-handle { border-left: 1px solid var(--dsw-alias-border-l3); }
-.hub-root[data-expanded="true"][data-edge="top"] .hub-handle { border-bottom: 1px solid var(--dsw-alias-border-l3); }
 .hub-root[data-expanded="true"][data-edge="bottom"] .hub-handle { border-top: 1px solid var(--dsw-alias-border-l3); }
 .hub-root[data-edge="left"] .hub-handle:hover, .hub-root[data-edge="left"] .hub-handle:focus-visible { width: var(--hub-handle-open); }
 .hub-root[data-edge="right"] .hub-handle:hover, .hub-root[data-edge="right"] .hub-handle:focus-visible { width: var(--hub-handle-open); }
-.hub-root[data-edge="top"] .hub-handle:hover, .hub-root[data-edge="top"] .hub-handle:focus-visible { height: var(--hub-handle-open); }
 .hub-root[data-edge="bottom"] .hub-handle:hover, .hub-root[data-edge="bottom"] .hub-handle:focus-visible { height: var(--hub-handle-open); }
 .hub-handle:hover::before, .hub-handle:focus-visible::before { opacity: 1; }
 .hub-handle:hover, .hub-handle:focus-visible {
@@ -595,11 +576,10 @@ window.__ModuleLoader__.load({
 }
 .hub-root[data-edge="left"] .hub-surface { border-left: none; border-radius: 0 12px 12px 0; }
 .hub-root[data-edge="right"] .hub-surface { border-right: none; border-radius: 12px 0 0 12px; }
-.hub-root[data-edge="top"] .hub-surface, .hub-root[data-edge="bottom"] .hub-surface {
+.hub-root[data-edge="bottom"] .hub-surface {
   flex: 1 1 auto; height: calc(100% - var(--hub-handle-open)); width: 100%;
   --hub-origin: center bottom;
 }
-.hub-root[data-edge="top"] .hub-surface { border-top: none; border-radius: 0 0 12px 12px; }
 .hub-root[data-edge="bottom"] .hub-surface { border-bottom: none; border-radius: 12px 12px 0 0; }
 
 @keyframes hubPanelIn {
@@ -809,9 +789,15 @@ window.__ModuleLoader__.load({
   width: 100%; text-align: left;
   padding: 8px 10px 8px 12px;
   border: 1px solid var(--hub-line); border-radius: 8px;
-  background: transparent; color: var(--hub-ink);
+  background: var(--dsw-alias-bg-layer-2); color: var(--hub-ink);
   font: inherit; cursor: pointer;
-  transition: background var(--hub-fast) ease, border-color var(--hub-fast) ease;
+  /* The resting halo is an empty one rather than none, so it can be tweened:
+     none and a shadow list do not interpolate. */
+  box-shadow: 0 0 0 0 transparent, 0 0 0 0 transparent;
+  transition:
+    background var(--hub-fast) ease,
+    border-color var(--hub-fast) ease,
+    box-shadow var(--hub-mid) var(--hub-ease);
 }
 .hub-card::before, .hub-row::before {
   content: '';
@@ -820,15 +806,33 @@ window.__ModuleLoader__.load({
   transform: scaleY(0); transform-origin: top;
   transition: transform var(--hub-mid) var(--hub-ease);
 }
-.hub-card:hover, .hub-row:hover {
+/* Hover is three replies to one pointer. The fill and the bar say "this one",
+   the halo says "here" — a brand-tinted shadow, not a darker border, because a
+   card has no fill of its own for a fill to read against. Keyboard focus gets
+   the same two, so the affordance is not mouse-only. */
+.hub-card:hover, .hub-row:hover,
+.hub-card:focus-visible, .hub-row:focus-visible {
   background: var(--dsw-alias-interactive-bg-hover);
   border-color: var(--hub-line-strong);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--hub-accent) 26%, transparent),
+    0 6px 20px -8px color-mix(in srgb, var(--hub-accent) 38%, transparent);
 }
 .hub-card:hover::before, .hub-row:hover::before { transform: scaleY(1); }
 .hub-card[data-done="true"] .hub-item-name { color: var(--hub-ink-3); text-decoration: line-through; }
 .hub-card[data-done="true"]::before, .hub-row[data-done="true"]::before {
   transform: scaleY(1); background: var(--hub-line-strong);
 }
+/* Completion is edited where the item already is: a checkbox at the trailing
+   end of the card's title row, and of the row itself. Always visible, and
+   outside the hover cluster — reaching it through the detail dialog and the
+   edit form is four activations to flip one boolean. */
+.hub-done-check {
+  flex: 0 0 auto; width: 14px; height: 14px; margin: 0;
+  accent-color: var(--hub-accent); cursor: pointer;
+}
+.hub-card-head { display: flex; align-items: center; gap: 6px; }
+.hub-card-head .hub-item-name { flex: 1 1 auto; min-width: 0; }
 
 .hub-row { flex-direction: row; align-items: center; gap: 10px; padding: 7px 8px 7px 12px; }
 .hub-row-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1 1 auto; }
@@ -1017,10 +1021,6 @@ window.__ModuleLoader__.load({
   transition: background var(--hub-fast) ease;
 }
 .hub-input[type="file"]::file-selector-button:hover { background: var(--dsw-alias-interactive-bg-hover-solid); }
-.hub-check-row {
-  display: flex; align-items: center; gap: 7px; color: var(--hub-ink); font-size: 12.5px; cursor: pointer;
-}
-.hub-check-row input { accent-color: var(--hub-accent); width: 14px; height: 14px; }
 .hub-inline { display: flex; gap: 8px; }
 .hub-inline > * { flex: 1 1 0; min-width: 0; }
 
@@ -1311,10 +1311,18 @@ window.__ModuleLoader__.load({
     const KIND_ICON = { todo: 'todo', note: 'note', prompt: 'prompt' }
     const KIND_LABEL_KEY = { todo: 'tab.todo', note: 'tab.note', prompt: 'tab.prompt' }
 
-    /** Dock edges, in the order the menu offers them. */
-    const EDGES = ['left', 'right', 'top', 'bottom']
-    const EDGE_ICON = { left: 'dockLeft', right: 'dockRight', top: 'dockTop', bottom: 'dockBottom' }
-    const EDGE_LABEL_KEY = { left: 'dock.left', right: 'dock.right', top: 'dock.top', bottom: 'dock.bottom' }
+    /**
+     * Dock edges, in the order the menu offers them.
+     *
+     * No top edge. The shell's own header sits at the top of the window, and a
+     * rail there either lands under its drag region — where the pointer never
+     * reaches it — or, cleared of it, sits on the conversation's own title row.
+     * Both failures are silent and both cost the edge more than it is worth, so
+     * the panel docks to the three sides that have no chrome of their own.
+     */
+    const EDGES = ['left', 'right', 'bottom']
+    const EDGE_ICON = { left: 'dockLeft', right: 'dockRight', bottom: 'dockBottom' }
+    const EDGE_LABEL_KEY = { left: 'dock.left', right: 'dock.right', bottom: 'dock.bottom' }
 
     /** Only these two views exist; both are persisted. */
     const VIEWS = ['grid', 'list']
@@ -2005,6 +2013,31 @@ window.__ModuleLoader__.load({
       const step = Math.min(index ?? 0, 8)
       return `${step * 16}ms`
     }
+    /**
+     * Completion, on the item rather than in a form.
+     *
+     * The item is a button that opens the detail dialog, so the click stops
+     * here: completing a TODO must not also open the thing it just changed. The
+     * box reflects the stored item and nothing else, so it does not tick on the
+     * click and untick on the reload that follows it.
+     *
+     * @param {{item: object, onToggle: (item: object, done: boolean) => void}} props
+     * @returns a labelled checkbox, or nothing for a kind that has no `done`.
+     */
+    function DoneToggle(props) {
+      if (props.item.kind !== 'todo') return null
+      return h('input', {
+        key: 'k',
+        type: 'checkbox',
+        className: 'hub-done-check',
+        checked: props.item.done === true,
+        title: translate('field.done'),
+        'aria-label': translate('field.done'),
+        onClick: event => { event.stopPropagation() },
+        onChange: event => { props.onToggle(props.item, event.target.checked === true) },
+      })
+    }
+
     /** Detail and delete affordances shared by the card and the row. */
     function ItemActions(props) {
       return h('span', { key: 'a', className: 'hub-item-actions' }, [
@@ -2036,6 +2069,11 @@ window.__ModuleLoader__.load({
         tabIndex: 0,
         onClick: () => props.onOpen(item),
         onKeyDown: event => {
+          // A nested control owns its own keys. Space on the checkbox toggles it
+          // and Space on an item action fires that action; both bubble here, and
+          // opening the item on top of them would put the detail dialog between
+          // the user and the thing they just pressed.
+          if (event.target !== event.currentTarget) return
           // Space is the second activation key on a role=button; without this it
           // also scrolls the panel body underneath.
           if (event.key !== 'Enter' && event.key !== ' ') return
@@ -2043,7 +2081,10 @@ window.__ModuleLoader__.load({
           props.onOpen(item)
         },
       }, [
-        h('div', { key: 'n', className: 'hub-item-name' }, item.name),
+        h('div', { key: 'h', className: 'hub-card-head' }, [
+          h('span', { key: 'n', className: 'hub-item-name' }, item.name),
+          DoneToggle({ item, onToggle: props.onToggle }),
+        ]),
         h('div', { key: 't', className: 'hub-item-text', 'data-lines': '3' }, item.content),
         // One foot rather than two loose rows: the tags and the size share a
         // rule, so the card reads as a unit instead of a stack of facts.
@@ -2066,6 +2107,8 @@ window.__ModuleLoader__.load({
         tabIndex: 0,
         onClick: () => props.onOpen(item),
         onKeyDown: event => {
+          // Same reason as the card: a nested control's keys are its own.
+          if (event.target !== event.currentTarget) return
           // Space is the second activation key on a role=button; without this it
           // also scrolls the panel body underneath.
           if (event.key !== 'Enter' && event.key !== ' ') return
@@ -2082,6 +2125,7 @@ window.__ModuleLoader__.load({
         ]),
         h('span', { key: 's', className: 'hub-card-size' }, formatSize(item.size)),
         ItemActions({ item, onCopy: props.onCopy, onDelete: props.onDelete }),
+        DoneToggle({ item, onToggle: props.onToggle }),
       ])
     }
 
@@ -2176,16 +2220,6 @@ window.__ModuleLoader__.load({
                 key: priority,
                 value: priority,
               }, translate(`priority.${priority}`))))),
-          ])
-          : null,
-        isTodo
-          ? h('label', { key: 'done', className: 'hub-check-row' }, [
-            h('input', {
-              type: 'checkbox',
-              checked: draft.done === true,
-              onChange: event => patch({ done: event.target.checked }),
-            }),
-            translate('field.done'),
           ])
           : null,
         isTodo
@@ -2602,6 +2636,10 @@ window.__ModuleLoader__.load({
               description: draft.description,
               category: draft.category,
               priority: draft.priority,
+              // The form carries no completion control — the item's own
+              // checkbox owns that — but the round trip still sends the value:
+              // an update that dropped it would clear the completion a checkbox
+              // set, every time somebody edited the title.
               done: draft.done,
               note: draft.note,
               attachments: files,
@@ -2639,6 +2677,31 @@ window.__ModuleLoader__.load({
           dispatch({ type: 'busy', busy: false })
         }
       }, [state.modal, closeModal, say, load])
+
+      // Completion, from the item's own checkbox rather than the edit form. The
+      // write is the one the form used to make, minus the dialog, and it reloads
+      // like every other write — so the item comes back from the store rather
+      // than from a local guess a rejected write would have to be undone from.
+      // Nothing is marked `busy` while it runs: that would re-render the item
+      // with the completion it does not have yet and snap the box back under the
+      // pointer. One completion write at a time, instead, which is what keeps a
+      // double click from sending two.
+      const writingDone = useRef(false)
+      const toggleDone = useCallback(async (item, done) => {
+        if (writingDone.current) return
+        writingDone.current = true
+        try {
+          await hubCall('update', item.id, { done })
+          say(null)
+          await load()
+        }
+        catch (error) {
+          say(failureText(error) || translate('state.failed'), 'error')
+        }
+        finally {
+          writingDone.current = false
+        }
+      }, [say, load])
 
       const copyItem = useCallback(async (item) => {
         const copied = await copyText(item.content)
@@ -2724,6 +2787,7 @@ window.__ModuleLoader__.load({
                       item,
                       index,
                       onOpen: openDetail,
+                      onToggle: (target, done) => { void toggleDone(target, done) },
                       onCopy: item => { void copyItem(item) },
                       onDelete: askDelete,
                     })))
@@ -2733,6 +2797,7 @@ window.__ModuleLoader__.load({
                       item,
                       index,
                       onOpen: openDetail,
+                      onToggle: (target, done) => { void toggleDone(target, done) },
                       onCopy: item => { void copyItem(item) },
                       onDelete: askDelete,
                     }))),
@@ -2807,7 +2872,7 @@ window.__ModuleLoader__.load({
                 }),
                 IconButton({
                   key: 'dock',
-                  icon: 'dock' + (ui.edge === 'left' ? 'Left' : ui.edge === 'right' ? 'Right' : ui.edge === 'top' ? 'Top' : 'Bottom'),
+                  icon: 'dock' + (ui.edge === 'left' ? 'Left' : ui.edge === 'right' ? 'Right' : 'Bottom'),
                   label: translate('action.dock'),
                   on: menu === 'dock',
                   onClick: () => setMenu(current => (current === 'dock' ? 'none' : 'dock')),

@@ -220,6 +220,11 @@ not optional.
 - **Tab bar**: floating capsule, bottom-centred, three options.
 - **Modals**: create, delete-confirm, and a detail modal whose top-right holds
   a copy button and a close button.
+- **Completion lives on the item.** A TODO carries a checkbox at the trailing
+  end of its card title row and of its list row, and the create and edit forms
+  carry no completion control — a save must leave completion exactly as the
+  checkbox left it. Reaching it through the detail dialog and the form's Confirm
+  is four activations to flip one boolean.
 - **Views**: grid and list, switchable, persisted, each with its own loading
   state.
 - **Grid**: `repeat(auto-fill, minmax(min(100%, var(--hub-card-min)), 1fr))`
@@ -274,9 +279,20 @@ and transition in the panel; no state depends on one to be legible.
 
 ## 9. Docking
 
-Four edge anchors (top / right / bottom / left). Collapsed shows a slim handle
-strip only. Pointer entering the handle — or a click — expands it. Pointer
-leaving plus an idle delay collapses it again. The chosen edge is persisted.
+Three edge anchors — **left / right / bottom**. Collapsed shows a slim handle
+strip at the middle of its edge, and nothing else. Pointer entering *the handle*
+— or a click — expands it; entering the rail around the handle does not, or a
+7px strip down the whole window edge would open the panel under a pointer that
+never went near it. Pointer leaving the rail plus a short idle delay collapses
+it again. The chosen edge is persisted.
+
+**There is no top anchor.** The application owns the top of its window: a
+full-width, drag-enabled titlebar, and under it the conversation's own title row.
+A rail there either lands inside the drag region, where the pointer never reaches
+it, or — once cleared of that — covers the conversation's title. Both failures
+are silent, so the edge is withdrawn rather than special-cased. A stored
+`top` preference falls back to `right`, which is the next anchor in preference
+order.
 
 ## 10. Language
 

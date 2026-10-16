@@ -232,13 +232,41 @@ async function mountPanel() {
   panel.expand = () => { panel.byClass('hub-handle').props.onPointerEnter?.() }
   panel.hoverRail = () => { panel.byClass('hub-root').props.onPointerEnter?.() }
   panel.leave = () => { panel.byClass('hub-root').props.onPointerLeave?.() }
-  panel.click = node => { node?.props.onClick?.({ stopPropagation() {} }) }
+  panel.click = node => { click(node) }
   panel.render()
   await panel.settle()
   if (panel.tree === undefined || panel.byClass('hub-root') === undefined) {
     throw new Error(`the panel did not mount: ${panel.error?.stack ?? `component=${typeof component} tree=${typeof panel.tree}`}`)
   }
   return panel
+}
+
+/**
+ * Click a control the way the DOM does.
+ *
+ * The control's own handler runs first, then the click bubbles to each ancestor
+ * in turn unless something stopped it. That half is the point: this harness has
+ * no event system, so a control nested inside a button that forgets to stop its
+ * click would look exactly like one that remembers. The other half is the
+ * checkbox: the browser ticks the box as part of the click and React reports it
+ * through `onChange` once the click has finished propagating, so ticking one has
+ * to go through the same call as pressing any other control.
+ *
+ * @param node The control being clicked.
+ * @param ancestors Its ancestors, nearest first.
+ * @returns The event, so a test can assert whether the click was stopped.
+ */
+function click(node, ...ancestors) {
+  const event = { stopped: false, stopPropagation() { this.stopped = true } }
+  node?.props.onClick?.(event)
+  for (const ancestor of ancestors) {
+    if (event.stopped) break
+    ancestor?.props.onClick?.(event)
+  }
+  if (node?.props.type === 'checkbox') {
+    node.props.onChange?.({ target: { checked: !node.props.checked } })
+  }
+  return event
 }
 
 /** Render the panel and expand every nested function component, as React does. */
@@ -455,6 +483,123 @@ function findInside(panel, className, predicate) {
   return container === undefined ? undefined : findNode(container, predicate)
 }
 
+/** The completion checkbox, on a card or on a row. */
+function doneCheck(panel) {
+  return panel.find(node => node.props?.className === 'hub-done-check')
+}
+
+/** The completion checkbox inside the open dialog. The item list stays mounted
+ *  behind the scrim, so a whole-panel lookup would find the item's own box. */
+function doneCheckInModal(panel) {
+  return findInside(panel, 'hub-modal', node => node.props?.className === 'hub-done-check')
+}
+
+test('a TODO completes from the item itself, without a dialog', async () => {
+  // The interaction this replaces: open the item, click Edit, tick the box,
+  // click Confirm — four activations and two dialogs to flip one boolean.
+  const panel = await mountPanel()
+  await withAnItem(panel, '发布检查清单')
+
+  const item = panel.byClass('hub-card') ?? panel.byClass('hub-row')
+  const check = doneCheck(panel)
+  assert.ok(check !== undefined, 'a TODO must carry its own completion checkbox')
+  assert.equal(check.props.checked, false, 'a new TODO starts unfinished')
+
+  // The item is a button that opens the detail dialog, so the checkbox has to
+  // stop the click: completing a TODO must not also open the thing it changed.
+  const event = click(check, item)
+  await panel.settle()
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  assert.equal(event.stopped, true, 'the checkbox must stop the click before the item')
+  assert.equal(stored()[0].done, true, 'completion must be written through the Remote')
+  assert.equal(panel.byClass('hub-modal'), undefined, 'completing must not open a dialog')
+  assert.equal(doneCheck(panel).props.checked, true,
+    'the item must come back ticked from the store, not from a local guess')
+})
+
+test('the list row completes its item the same way', async () => {
+  const panel = await mountPanel()
+  await withAnItem(panel, '发布检查清单')
+
+  panel.click(panel.byLabel('action.viewGrid'))
+  await panel.settle()
+  const row = panel.byClass('hub-row')
+  assert.ok(row !== undefined, 'the row view must be on screen')
+
+  const check = doneCheck(panel)
+  assert.ok(check !== undefined, 'a row must carry its own completion checkbox')
+  click(check, row)
+  await panel.settle()
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  assert.equal(stored()[0].done, true)
+  assert.equal(panel.byClass('hub-modal'), undefined, 'completing must not open a dialog')
+})
+
+test('neither the create form nor the edit form offers completion', async () => {
+  const panel = await mountPanel()
+  await withAnItem(panel, '发布检查清单')
+
+  panel.click(panel.byLabel('action.create'))
+  await panel.settle()
+  assert.ok(panel.byClass('hub-modal'), 'the create form must be on screen')
+  assert.equal(doneCheckInModal(panel), undefined, 'completion belongs to the item, not the form')
+  panel.click(panel.byText('action.cancel'))
+  await panel.settle()
+
+  panel.click(panel.byClass('hub-card') ?? panel.byClass('hub-row'))
+  await panel.settle()
+  panel.click(panel.byText('action.edit'))
+  await panel.settle()
+  assert.ok(panel.byClass('hub-textarea'), 'the edit form must be on screen')
+  assert.equal(doneCheckInModal(panel), undefined, 'the edit form must not offer completion either')
+})
+
+test('editing a completed TODO leaves it completed', async () => {
+  // The form no longer carries `done`, so the draft still has to round trip it:
+  // an update that dropped the field would clear the completion a checkbox set,
+  // every time somebody changed the title.
+  const panel = await mountPanel()
+  await withAnItem(panel, '发布检查清单')
+  click(doneCheck(panel), panel.byClass('hub-card') ?? panel.byClass('hub-row'))
+  await panel.settle()
+  assert.equal(stored()[0].done, true)
+
+  panel.click(panel.byClass('hub-card') ?? panel.byClass('hub-row'))
+  await panel.settle()
+  panel.click(panel.byText('action.edit'))
+  await panel.settle()
+  fieldByLabel(panel, 'field.title').props.onChange({ target: { value: '发布检查清单 v2' } })
+  await panel.settle()
+  panel.click(panel.byText('action.confirm'))
+  await panel.settle()
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  assert.equal(stored()[0].title, '发布检查清单 v2')
+  assert.equal(stored()[0].done, true, 'saving the edit form must not clear completion')
+})
+
+test('a Note carries no completion checkbox', async () => {
+  // `done` is a TODO field. A checkbox on a Note would write one the model does
+  // not carry, and the Host drops an unrecognised field by design — so it would
+  // read back unfinished forever with nothing to say why.
+  const panel = await mountPanel()
+  panel.expand()
+  await panel.settle()
+  panel.click(panel.byText('tab.note'))
+  await panel.settle()
+  panel.click(panel.byLabel('action.create'))
+  await panel.settle()
+  panel.byClass('hub-textarea').props.onChange?.({ target: { value: '一条笔记' } })
+  await panel.settle()
+  panel.click(panel.byText('action.confirm'))
+  await panel.settle()
+
+  assert.equal(stored()[0].kind, 'note')
+  assert.equal(doneCheck(panel), undefined, 'only a TODO carries completion')
+})
+
 test('a Note saves its title on edit as well', async () => {
   // The payload differs per kind, so a TODO alone does not cover this: a note
   // sends `{ title, text, images }` where a TODO sends `{ title, description, … }`.
@@ -530,23 +675,33 @@ test('a current Host raises no notice', async () => {
     'every §5 field is present, so the skew check must stay quiet')
 })
 
-test('the top rail clears the window chrome instead of hiding under it', () => {
-  // CSS is the one thing this harness cannot see: the mini-React renders
-  // elements, it does not lay them out, so a rule that parks the rail under the
-  // app's drag-enabled titlebar looks identical to a correct one here.
-  //
-  // That titlebar is drawn across the full width
-  // (`[data-windows-titlebar] .frame::before`: `inset: 0 0 auto`,
-  // `-webkit-app-region: drag`), so it both paints over the rail and eats the
-  // pointer first. The shell publishes `--dsh-frame-overlay-top` for exactly
-  // this case.
+test('a hovered item glows, and the glow is made of tokens only', () => {
+  // CSS is invisible to this harness, and the rules that govern it are exactly
+  // the ones AGENTS binds: every ink a `--dsw-alias-*` token, no literal colour.
   const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
-  assert.match(source, /--hub-top-inset: var\(--dsh-frame-chrome-top, var\(--dsh-frame-top-clearance, 0px\)\)/,
-    'the rail must start flush against the chrome, from the shell tokens')
-  assert.match(source, /\.hub-root\[data-edge="top"\] \{ top: var\(--hub-top-inset\)/,
-    'the top rail must be inset by that token, not pinned to 0')
-  assert.match(source, /data-expanded="true"\]\[data-edge="top"\] \{ height: min\(560px, calc\(74vh - var\(--hub-top-inset\)\)/,
-    'an expanded top panel must still fit: its height is measured from the inset')
+  assert.match(source, /\.hub-card:hover, \.hub-row:hover,\s*\n\.hub-card:focus-visible, \.hub-row:focus-visible \{[^}]*box-shadow:/,
+    'hover must raise a halo, and keyboard focus must get the same one')
+  assert.match(source, /0 0 0 0 transparent, 0 0 0 0 transparent;/,
+    'the resting halo must be an empty shadow, so it can be tweened')
+
+  const card = source.slice(source.indexOf('.hub-card, .hub-row {'), source.indexOf('.hub-card:focus-visible, .hub-row:focus-visible'))
+  const literals = [...card.matchAll(/#[0-9a-f]{3,8}\b|\brgba?\(|\bhsla?\(/gi)]
+  assert.deepEqual(literals, [], 'no literal colour may reach a card')
+})
+
+test('there is no top edge, and nothing left over that assumes one', () => {
+  // The shell draws a full-width, drag-enabled titlebar across the top of the
+  // window, and the conversation's own title row sits under it. A rail there
+  // either lands inside the drag region — where the pointer never reaches it —
+  // or, cleared of that, covers the conversation's title. Both failures are
+  // silent, so the edge is gone rather than special-cased.
+  const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+  assert.match(source, /const EDGES = \['left', 'right', 'bottom'\]/,
+    'the dock menu must offer the three edges the app does not occupy')
+  assert.doesNotMatch(source, /data-edge="top"/,
+    'no CSS may still style an edge that cannot be selected')
+  assert.doesNotMatch(source, /'dock\.top'|dockTop/,
+    'its locale strings and icon must go with it')
 })
 
 test('only the handle opens the panel, not the rail around it', async () => {
@@ -568,7 +723,7 @@ test('an expanded left panel is bounded and centred, not full height', () => {
   // stretch `top: 0; bottom: 0`, so without an explicit height the surface runs
   // the whole window and lands its toolbar on the window titlebar's row.
   const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
-  assert.match(source, /data-expanded="true"\]\[data-edge="left"\],\s*\n?[^}]*height: min\(560px, calc\(100vh - 2 \* var\(--hub-top-inset\)\)\)/,
+  assert.match(source, /data-expanded="true"\]\[data-edge="left"\],\s*\n?[^}]*height: min\(560px, calc\(100vh - 2 \* var\(--hub-edge-clearance\)\)\)/,
     'an expanded left or right panel must be height-bounded and vertically centred')
 })
 
