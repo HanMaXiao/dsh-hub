@@ -220,6 +220,11 @@ not optional.
 - **Tab bar**: floating capsule, bottom-centred, three options.
 - **Modals**: create, delete-confirm, and a detail modal whose top-right holds
   a copy button and a close button.
+- **Completion lives on the item.** A TODO carries a checkbox at the trailing
+  end of its card title row and of its list row, and the create and edit forms
+  carry no completion control — a save must leave completion exactly as the
+  checkbox left it. Reaching it through the detail dialog and the form's Confirm
+  is four activations to flip one boolean.
 - **Views**: grid and list, switchable, persisted, each with its own loading
   state.
 - **Grid**: `repeat(auto-fill, minmax(min(100%, var(--hub-card-min)), 1fr))`

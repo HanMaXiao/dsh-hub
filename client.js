@@ -823,6 +823,16 @@ window.__ModuleLoader__.load({
 .hub-card[data-done="true"]::before, .hub-row[data-done="true"]::before {
   transform: scaleY(1); background: var(--hub-line-strong);
 }
+/* Completion is edited where the item already is: a checkbox at the trailing
+   end of the card's title row, and of the row itself. Always visible, and
+   outside the hover cluster — reaching it through the detail dialog and the
+   edit form is four activations to flip one boolean. */
+.hub-done-check {
+  flex: 0 0 auto; width: 14px; height: 14px; margin: 0;
+  accent-color: var(--hub-accent); cursor: pointer;
+}
+.hub-card-head { display: flex; align-items: center; gap: 6px; }
+.hub-card-head .hub-item-name { flex: 1 1 auto; min-width: 0; }
 
 .hub-row { flex-direction: row; align-items: center; gap: 10px; padding: 7px 8px 7px 12px; }
 .hub-row-main { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1 1 auto; }
@@ -1011,10 +1021,6 @@ window.__ModuleLoader__.load({
   transition: background var(--hub-fast) ease;
 }
 .hub-input[type="file"]::file-selector-button:hover { background: var(--dsw-alias-interactive-bg-hover-solid); }
-.hub-check-row {
-  display: flex; align-items: center; gap: 7px; color: var(--hub-ink); font-size: 12.5px; cursor: pointer;
-}
-.hub-check-row input { accent-color: var(--hub-accent); width: 14px; height: 14px; }
 .hub-inline { display: flex; gap: 8px; }
 .hub-inline > * { flex: 1 1 0; min-width: 0; }
 
@@ -2007,6 +2013,31 @@ window.__ModuleLoader__.load({
       const step = Math.min(index ?? 0, 8)
       return `${step * 16}ms`
     }
+    /**
+     * Completion, on the item rather than in a form.
+     *
+     * The item is a button that opens the detail dialog, so the click stops
+     * here: completing a TODO must not also open the thing it just changed. The
+     * box reflects the stored item and nothing else, so it does not tick on the
+     * click and untick on the reload that follows it.
+     *
+     * @param {{item: object, onToggle: (item: object, done: boolean) => void}} props
+     * @returns a labelled checkbox, or nothing for a kind that has no `done`.
+     */
+    function DoneToggle(props) {
+      if (props.item.kind !== 'todo') return null
+      return h('input', {
+        key: 'k',
+        type: 'checkbox',
+        className: 'hub-done-check',
+        checked: props.item.done === true,
+        title: translate('field.done'),
+        'aria-label': translate('field.done'),
+        onClick: event => { event.stopPropagation() },
+        onChange: event => { props.onToggle(props.item, event.target.checked === true) },
+      })
+    }
+
     /** Detail and delete affordances shared by the card and the row. */
     function ItemActions(props) {
       return h('span', { key: 'a', className: 'hub-item-actions' }, [
@@ -2038,6 +2069,11 @@ window.__ModuleLoader__.load({
         tabIndex: 0,
         onClick: () => props.onOpen(item),
         onKeyDown: event => {
+          // A nested control owns its own keys. Space on the checkbox toggles it
+          // and Space on an item action fires that action; both bubble here, and
+          // opening the item on top of them would put the detail dialog between
+          // the user and the thing they just pressed.
+          if (event.target !== event.currentTarget) return
           // Space is the second activation key on a role=button; without this it
           // also scrolls the panel body underneath.
           if (event.key !== 'Enter' && event.key !== ' ') return
@@ -2045,7 +2081,10 @@ window.__ModuleLoader__.load({
           props.onOpen(item)
         },
       }, [
-        h('div', { key: 'n', className: 'hub-item-name' }, item.name),
+        h('div', { key: 'h', className: 'hub-card-head' }, [
+          h('span', { key: 'n', className: 'hub-item-name' }, item.name),
+          DoneToggle({ item, onToggle: props.onToggle }),
+        ]),
         h('div', { key: 't', className: 'hub-item-text', 'data-lines': '3' }, item.content),
         // One foot rather than two loose rows: the tags and the size share a
         // rule, so the card reads as a unit instead of a stack of facts.
@@ -2068,6 +2107,8 @@ window.__ModuleLoader__.load({
         tabIndex: 0,
         onClick: () => props.onOpen(item),
         onKeyDown: event => {
+          // Same reason as the card: a nested control's keys are its own.
+          if (event.target !== event.currentTarget) return
           // Space is the second activation key on a role=button; without this it
           // also scrolls the panel body underneath.
           if (event.key !== 'Enter' && event.key !== ' ') return
@@ -2084,6 +2125,7 @@ window.__ModuleLoader__.load({
         ]),
         h('span', { key: 's', className: 'hub-card-size' }, formatSize(item.size)),
         ItemActions({ item, onCopy: props.onCopy, onDelete: props.onDelete }),
+        DoneToggle({ item, onToggle: props.onToggle }),
       ])
     }
 
@@ -2178,16 +2220,6 @@ window.__ModuleLoader__.load({
                 key: priority,
                 value: priority,
               }, translate(`priority.${priority}`))))),
-          ])
-          : null,
-        isTodo
-          ? h('label', { key: 'done', className: 'hub-check-row' }, [
-            h('input', {
-              type: 'checkbox',
-              checked: draft.done === true,
-              onChange: event => patch({ done: event.target.checked }),
-            }),
-            translate('field.done'),
           ])
           : null,
         isTodo
@@ -2604,6 +2636,10 @@ window.__ModuleLoader__.load({
               description: draft.description,
               category: draft.category,
               priority: draft.priority,
+              // The form carries no completion control — the item's own
+              // checkbox owns that — but the round trip still sends the value:
+              // an update that dropped it would clear the completion a checkbox
+              // set, every time somebody edited the title.
               done: draft.done,
               note: draft.note,
               attachments: files,
@@ -2641,6 +2677,31 @@ window.__ModuleLoader__.load({
           dispatch({ type: 'busy', busy: false })
         }
       }, [state.modal, closeModal, say, load])
+
+      // Completion, from the item's own checkbox rather than the edit form. The
+      // write is the one the form used to make, minus the dialog, and it reloads
+      // like every other write — so the item comes back from the store rather
+      // than from a local guess a rejected write would have to be undone from.
+      // Nothing is marked `busy` while it runs: that would re-render the item
+      // with the completion it does not have yet and snap the box back under the
+      // pointer. One completion write at a time, instead, which is what keeps a
+      // double click from sending two.
+      const writingDone = useRef(false)
+      const toggleDone = useCallback(async (item, done) => {
+        if (writingDone.current) return
+        writingDone.current = true
+        try {
+          await hubCall('update', item.id, { done })
+          say(null)
+          await load()
+        }
+        catch (error) {
+          say(failureText(error) || translate('state.failed'), 'error')
+        }
+        finally {
+          writingDone.current = false
+        }
+      }, [say, load])
 
       const copyItem = useCallback(async (item) => {
         const copied = await copyText(item.content)
@@ -2726,6 +2787,7 @@ window.__ModuleLoader__.load({
                       item,
                       index,
                       onOpen: openDetail,
+                      onToggle: (target, done) => { void toggleDone(target, done) },
                       onCopy: item => { void copyItem(item) },
                       onDelete: askDelete,
                     })))
@@ -2735,6 +2797,7 @@ window.__ModuleLoader__.load({
                       item,
                       index,
                       onOpen: openDetail,
+                      onToggle: (target, done) => { void toggleDone(target, done) },
                       onCopy: item => { void copyItem(item) },
                       onDelete: askDelete,
                     }))),
