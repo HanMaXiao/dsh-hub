@@ -226,6 +226,7 @@ async function mountPanel() {
   }
   panel.find = (predicate) => findNode(panel.tree, predicate)
   panel.byClass = className => panel.find(node => node.props?.className === className)
+  panel.allByClass = className => collect(panel.tree, node => node.props?.className === className)
   panel.buttons = () => collectButtons(panel.tree)
   panel.byLabel = label => panel.buttons().find(button => button.props['aria-label'] === label)
   panel.byText = label => panel.find(node => node.type === 'button' && textOf(node).includes(label))
@@ -312,6 +313,14 @@ function findNode(node, predicate) {
     if (hit !== undefined) return hit
   }
   return undefined
+}
+
+/** Every node matching `predicate`, in document order. */
+function collect(node, predicate, out = []) {
+  if (node === null || typeof node !== 'object') return out
+  if (predicate(node)) out.push(node)
+  for (const child of node.children ?? []) collect(child, predicate, out)
+  return out
 }
 
 function collectButtons(node, out = []) {
@@ -477,11 +486,180 @@ test('a modal holds the panel open, and the handle brings it back', async () => 
   assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
 })
 
+test('a TODO list is framed by completion, and a new task opens the unfinished half', async () => {
+  // The defect this replaces: one list, sorted by whatever was picked, where an
+  // unfinished task sits among finished ones and neither half can be seen whole.
+  const panel = await mountPanel()
+  panel.expand()
+  await panel.settle()
+  assert.equal(panel.byClass('hub-regions'), undefined,
+    'an empty store shows the empty state, not two empty headers')
+
+  await withAnItem(panel, '写一份发布检查清单')
+
+  const regions = panel.allByClass('hub-region')
+  assert.equal(regions.length, 1, 'only the unfinished half has anything in it yet')
+  assert.equal(regions[0].props['data-open'], 'true',
+    'a new task must not land in a folded region the moment the dialog closes')
+  assert.ok(regionLabelled(panel, 'group.done.no') !== undefined,
+    'the header names the unfinished half')
+  assert.ok(regionLabelled(panel, 'group.done.yes') === undefined,
+    'an empty finished half is not rendered at all')
+  assert.match(textOf(regions[0]), /1 count\.unit/, 'a folded header still counts')
+})
+
+test('a region folds to its count and unfolds again', async () => {
+  const panel = await mountPanel()
+  await withAnItem(panel, '写一份发布检查清单')
+
+  const head = () => panel.find(node => node.props?.className === 'hub-region-head')
+  assert.ok(head() !== undefined, 'a TODO region draws a header to fold')
+
+  panel.click(head())
+  await panel.settle()
+  assert.equal(panel.byClass('hub-region').props['data-open'], 'false',
+    'the header folds its own region')
+  assert.equal(head().props['aria-expanded'], 'false', 'and says so')
+
+  panel.click(head())
+  await panel.settle()
+  assert.equal(panel.byClass('hub-region').props['data-open'], 'true', 'and unfolds it again')
+  assert.equal(head().props['aria-expanded'], 'true')
+  assert.ok(namesIn(panel.byClass('hub-region')).length === 1,
+    'a folded region keeps its items, so unfolding does not re-fetch or re-order them')
+})
+
+test('the unfinished half follows the sort menu; the finished one follows completion', async () => {
+  const panel = await mountPanel()
+  // Latin names, deliberately: the name field is ordered by an Intl.Collator on
+  // the runtime's locale, and CJK titles do not sort the same way everywhere —
+  // under zh-CN pinyin, 第二条 sorts *before* 第一条. These order the same way in
+  // any locale, so the assertions below are about the panel and not about ICU.
+  await withAnItem(panel, 'zeta')
+  await withAnItem(panel, 'alpha')
+
+  assert.deepEqual(namesIn(regionLabelled(panel, 'group.done.no')), ['alpha', 'zeta'],
+    'the unfinished half is sorted by the chosen field, ascending by name')
+
+  // Finished in name order, so completion order runs against it and the
+  // finished half can only come out right one way.
+  await completeNamed(panel, 'alpha')
+  await pause(5)
+  await completeNamed(panel, 'zeta')
+
+  const finished = regionLabelled(panel, 'group.done.yes')
+  assert.ok(finished !== undefined, 'finishing a task must create the finished region')
+  assert.equal(finished.props['data-open'], 'true',
+    'a task that moves has to be seen moving, not counted into a shut region')
+  assert.deepEqual(namesIn(finished), ['zeta', 'alpha'],
+    'the finished half is a log: newest completion on top, whatever the menu says')
+  assert.equal(regionLabelled(panel, 'group.done.no'), undefined,
+    'nothing is left unfinished once both are finished')
+
+  const stamps = stored().map(item => item.completedAt)
+  assert.equal(stamps.length, 2, 'the Host stamps completion, not the panel')
+  assert.notEqual(stamps[0], stamps[1], 'and stamps each one on its own')
+})
+
+test('reopening a task puts it back in the unfinished half, and opens it', async () => {
+  const panel = await mountPanel()
+  await withAnItem(panel, 'alpha')
+  await completeNamed(panel, 'alpha')
+
+  assert.ok(regionLabelled(panel, 'group.done.yes') !== undefined)
+  const openRegion = regionLabelled(panel, 'group.done.no')
+  assert.equal(openRegion, undefined, 'an unfinished half with nothing in it is not rendered')
+
+  await completeNamed(panel, 'alpha')
+
+  const back = regionLabelled(panel, 'group.done.no')
+  assert.ok(back !== undefined, 'reopening must bring the unfinished half back')
+  assert.equal(back.props['data-open'], 'true', 'and open it')
+  assert.deepEqual(namesIn(back), ['alpha'])
+  assert.equal(regionLabelled(panel, 'group.done.yes'), undefined,
+    'a finished half with nothing in it goes away again')
+  assert.equal(stored()[0].done, false)
+  assert.equal(stored()[0].completedAt, '', 'an unfinished task carries no completion stamp')
+})
+
+test('a Note is one region with no header, and never folds', async () => {
+  const panel = await mountPanel()
+  panel.expand()
+  await panel.settle()
+  panel.click(panel.byText('tab.note'))
+  await panel.settle()
+  panel.click(panel.byLabel('action.create'))
+  await panel.settle()
+  panel.byClass('hub-textarea').props.onChange?.({ target: { value: '一条笔记' } })
+  await panel.settle()
+  panel.click(panel.byText('action.confirm'))
+  await panel.settle()
+
+  const regions = panel.allByClass('hub-region')
+  assert.equal(regions.length, 1, 'a Note has no completion to be framed by')
+  assert.equal(regions[0].props['data-open'], 'true')
+  assert.equal(panel.byClass('hub-region-head'), undefined,
+    'one undivided list needs no header over it, and nothing to fold')
+  assert.deepEqual(namesIn(regions[0]), ['一条笔记'])
+})
+
+test('the completion grouping choice is gone from the sort menu', () => {
+  // Completion is the frame the list is built in, not something a menu arranges.
+  // Offering it would put a group header inside a region that is already one
+  // completion state, which says the same thing twice.
+  const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+  assert.doesNotMatch(source, /labelKey: 'group\.done'\}/,
+    'no grouping choice may name completion any more')
+  assert.doesNotMatch(source, /'group\.done':/,
+    'and its locale string goes with it')
+})
+
 /** The first node inside `container` matching `predicate`. */
 function findInside(panel, className, predicate) {
   const container = panel.byClass(className)
   return container === undefined ? undefined : findNode(container, predicate)
 }
+
+/** The region whose header carries `labelKey`; undefined when it is not shown. */
+function regionLabelled(panel, labelKey) {
+  return panel.find(node => node.props?.className === 'hub-region'
+    && (node.children ?? []).some(child =>
+      child.props?.className === 'hub-region-head' && textOf(child).includes(labelKey)))
+}
+
+/** The item names rendered inside `node`, in document order. */
+function namesIn(node) {
+  if (node === undefined) return []
+  return collect(node, child => child.props?.className === 'hub-item-name').map(textOf)
+}
+
+/** The card or row showing `name`, and its own completion checkbox. */
+function itemNamed(panel, name) {
+  return panel.find(node => (node.props?.className === 'hub-card' || node.props?.className === 'hub-row')
+    && textOf(node).includes(name))
+}
+
+async function completeNamed(panel, name) {
+  const item = itemNamed(panel, name)
+  // The checkbox sits at the trailing end of the card's title row rather than
+  // beside the card, so this is a subtree search and not a child lookup.
+  const check = item === undefined
+    ? undefined
+    : findNode(item, child => child.props?.className === 'hub-done-check')
+  assert.ok(check !== undefined, `the item named ${name} must carry a completion checkbox`)
+  click(check, item)
+  await panel.settle()
+}
+
+/**
+ * Let the clock move.
+ *
+ * Completion is stamped to the millisecond, so two tasks finished back to back
+ * without a pause can share a stamp — and the finished region's order is then
+ * decided by the id tiebreak, which would make this file's ordering assertions
+ * depend on how fast the machine is.
+ */
+function pause(ms) { return new Promise(resolve => setTimeout(resolve, ms)) }
 
 /** The completion checkbox, on a card or on a row. */
 function doneCheck(panel) {
