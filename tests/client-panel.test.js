@@ -530,23 +530,33 @@ test('a current Host raises no notice', async () => {
     'every §5 field is present, so the skew check must stay quiet')
 })
 
-test('the top rail clears the window chrome instead of hiding under it', () => {
-  // CSS is the one thing this harness cannot see: the mini-React renders
-  // elements, it does not lay them out, so a rule that parks the rail under the
-  // app's drag-enabled titlebar looks identical to a correct one here.
-  //
-  // That titlebar is drawn across the full width
-  // (`[data-windows-titlebar] .frame::before`: `inset: 0 0 auto`,
-  // `-webkit-app-region: drag`), so it both paints over the rail and eats the
-  // pointer first. The shell publishes `--dsh-frame-overlay-top` for exactly
-  // this case.
+test('a hovered item glows, and the glow is made of tokens only', () => {
+  // CSS is invisible to this harness, and the rules that govern it are exactly
+  // the ones AGENTS binds: every ink a `--dsw-alias-*` token, no literal colour.
   const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
-  assert.match(source, /--hub-top-inset: var\(--dsh-frame-chrome-top, var\(--dsh-frame-top-clearance, 0px\)\)/,
-    'the rail must start flush against the chrome, from the shell tokens')
-  assert.match(source, /\.hub-root\[data-edge="top"\] \{ top: var\(--hub-top-inset\)/,
-    'the top rail must be inset by that token, not pinned to 0')
-  assert.match(source, /data-expanded="true"\]\[data-edge="top"\] \{ height: min\(560px, calc\(74vh - var\(--hub-top-inset\)\)/,
-    'an expanded top panel must still fit: its height is measured from the inset')
+  assert.match(source, /\.hub-card:hover, \.hub-row:hover,\s*\n\.hub-card:focus-visible, \.hub-row:focus-visible \{[^}]*box-shadow:/,
+    'hover must raise a halo, and keyboard focus must get the same one')
+  assert.match(source, /0 0 0 0 transparent, 0 0 0 0 transparent;/,
+    'the resting halo must be an empty shadow, so it can be tweened')
+
+  const card = source.slice(source.indexOf('.hub-card, .hub-row {'), source.indexOf('.hub-card:focus-visible, .hub-row:focus-visible'))
+  const literals = [...card.matchAll(/#[0-9a-f]{3,8}\b|\brgba?\(|\bhsla?\(/gi)]
+  assert.deepEqual(literals, [], 'no literal colour may reach a card')
+})
+
+test('there is no top edge, and nothing left over that assumes one', () => {
+  // The shell draws a full-width, drag-enabled titlebar across the top of the
+  // window, and the conversation's own title row sits under it. A rail there
+  // either lands inside the drag region — where the pointer never reaches it —
+  // or, cleared of that, covers the conversation's title. Both failures are
+  // silent, so the edge is gone rather than special-cased.
+  const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+  assert.match(source, /const EDGES = \['left', 'right', 'bottom'\]/,
+    'the dock menu must offer the three edges the app does not occupy')
+  assert.doesNotMatch(source, /data-edge="top"/,
+    'no CSS may still style an edge that cannot be selected')
+  assert.doesNotMatch(source, /'dock\.top'|dockTop/,
+    'its locale strings and icon must go with it')
 })
 
 test('only the handle opens the panel, not the rail around it', async () => {
@@ -568,7 +578,7 @@ test('an expanded left panel is bounded and centred, not full height', () => {
   // stretch `top: 0; bottom: 0`, so without an explicit height the surface runs
   // the whole window and lands its toolbar on the window titlebar's row.
   const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
-  assert.match(source, /data-expanded="true"\]\[data-edge="left"\],\s*\n?[^}]*height: min\(560px, calc\(100vh - 2 \* var\(--hub-top-inset\)\)\)/,
+  assert.match(source, /data-expanded="true"\]\[data-edge="left"\],\s*\n?[^}]*height: min\(560px, calc\(100vh - 2 \* var\(--hub-edge-clearance\)\)\)/,
     'an expanded left or right panel must be height-bounded and vertically centred')
 })
 
