@@ -996,19 +996,18 @@ window.__ModuleLoader__.load({
 .hub-label {
   color: var(--hub-ink-3); font-size: 10.5px; letter-spacing: .06em;
 }
-.hub-input, .hub-textarea, .hub-select {
+.hub-input, .hub-textarea {
   width: 100%; padding: 6px 8px;
   border: 1px solid var(--hub-line-strong); border-radius: 7px;
   background: var(--dsw-alias-bg-layer-1); color: var(--hub-ink);
   font: inherit; font-size: 12.5px;
   transition: border-color var(--hub-fast) ease, background var(--hub-fast) ease;
 }
-.hub-input:hover, .hub-textarea:hover, .hub-select:hover { border-color: var(--hub-line-strong); background: var(--dsw-alias-interactive-bg-hover); }
-.hub-input:focus, .hub-textarea:focus, .hub-select:focus {
+.hub-input:hover, .hub-textarea:hover { border-color: var(--hub-line-strong); background: var(--dsw-alias-interactive-bg-hover); }
+.hub-input:focus, .hub-textarea:focus {
   outline: none; border-color: var(--dsw-alias-state-business-primary);
 }
 .hub-textarea { min-height: 88px; line-height: 1.55; resize: vertical; }
-.hub-select { cursor: pointer; }
 /* The native file control is the one place the platform's chrome would show
    through, so only its button is redrawn — the input itself stays the real
    one, so the picker and its accessibility behaviour are untouched. */
@@ -1021,8 +1020,43 @@ window.__ModuleLoader__.load({
   transition: background var(--hub-fast) ease;
 }
 .hub-input[type="file"]::file-selector-button:hover { background: var(--dsw-alias-interactive-bg-hover-solid); }
-.hub-inline { display: flex; gap: 8px; }
-.hub-inline > * { flex: 1 1 0; min-width: 0; }
+
+/* --------------------------------------------------------------------------
+   The priority field: a radio row the panel draws, not a platform select.
+
+   A native select popup is rendered outside the page, by the OS, in the OS's
+   own colours. The document does carry color-scheme — dsh-client-ui-layout
+   projects the resolved scheme onto the document element on every theme change
+   — and it still arrives light: the panel's dark form is followed by a white
+   list that no token in this file can reach. So the control is drawn here
+   instead, and it wears the same marks MenuGroup draws — one leading check on
+   the selection, ink weight carrying the rest — laid out along a row rather
+   than down a menu.
+   -------------------------------------------------------------------------- */
+.hub-choices {
+  display: flex; gap: 2px; padding: 2px;
+  border: 1px solid var(--hub-line-strong); border-radius: 7px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+.hub-choice {
+  flex: 1 1 0; min-width: 0;
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+  padding: 5px 4px;
+  border: none; border-radius: 5px;
+  background: transparent; color: var(--hub-ink-2);
+  font: inherit; font-size: 12.5px; cursor: pointer;
+  transition: background var(--hub-fast) ease, color var(--hub-fast) ease;
+}
+.hub-choice:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--hub-ink); }
+.hub-choice:active { transform: scale(.975); }
+.hub-choice[aria-checked="true"] {
+  background: var(--dsw-alias-interactive-bg-hover); color: var(--hub-ink); font-weight: 500;
+}
+.hub-choice > span:first-child {
+  display: flex; flex: 0 0 auto; width: 12px; justify-content: center; color: var(--hub-ink-3);
+}
+.hub-choice[aria-checked="true"] > span:first-child { color: var(--hub-accent); }
+.hub-choice-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .hub-file-list { display: flex; flex-wrap: wrap; gap: 5px; }
 .hub-file {
@@ -1487,6 +1521,15 @@ window.__ModuleLoader__.load({
 
     /** The order priority groups appear in, independent of sort direction. */
     const PRIORITY_ORDER = ['urgent', 'high', 'normal', 'low']
+
+    /**
+     * The priority field's choices, least urgent first — the order the native
+     * select used to list them in, so the row reads the same way the dropdown
+     * did. Grouping above keeps the most urgent first, which is the opposite
+     * order on purpose (§6).
+     */
+    const PRIORITY_CHOICES = PRIORITY_ORDER.slice().reverse()
+      .map(id => ({ id, labelKey: `priority.${id}` }))
 
     /**
      * Sort fields, per kind (§6).
@@ -2155,6 +2198,46 @@ window.__ModuleLoader__.load({
       ])
     }
 
+    /**
+     * One labelled radio row: a closed set of choices, always visible, exactly
+     * one marked.
+     *
+     * It brings its own label rather than going through `Field`, because
+     * `Field` renders a `<label>` and a label forwards a click to the first
+     * labelable descendant — which here is always the first option, so clicking
+     * the word "Priority" would silently select it. The group is named with the
+     * same string the label shows, so nothing is announced twice.
+     *
+     * @param {{labelKey: string, value: string, choices: Array<{id: string, labelKey: string}>, onSelect: (id: string) => void}} props
+     * @returns the labelled radio row.
+     */
+    function ChoiceRow(props) {
+      return h('div', { className: 'hub-field' }, [
+        h('span', { key: 'l', className: 'hub-label' }, translate(props.labelKey)),
+        h('div', {
+          key: 'g',
+          className: 'hub-choices',
+          role: 'radiogroup',
+          'aria-label': translate(props.labelKey),
+        }, props.choices.map(choice => {
+          const selected = choice.id === props.value
+          return h('button', {
+            key: choice.id,
+            type: 'button',
+            className: 'hub-choice',
+            role: 'radio',
+            'aria-checked': String(selected),
+            onClick: () => props.onSelect(choice.id),
+          }, [
+            // The column is a fixed width rather than sized by the check, so the
+            // labels do not jump sideways as the selection moves along the row.
+            h('span', { key: 'i' }, selected ? h(Icon, { name: 'check', size: 12, width: 2 }) : null),
+            h('span', { key: 'l', className: 'hub-choice-label' }, translate(choice.labelKey)),
+          ])
+        })),
+      ])
+    }
+
     /** Create / edit form for any of the three kinds. */
     function CreateModal(props) {
       const kind = props.kind
@@ -2204,23 +2287,22 @@ window.__ModuleLoader__.load({
             onChange: event => patch(isTodo ? { description: event.target.value } : { text: event.target.value }),
           })),
         isTodo
-          ? h('div', { key: 'todo', className: 'hub-inline' }, [
-            h(Field, { key: 'cat', label: translate('field.category') },
-              h('input', {
-                className: 'hub-input',
-                value: draft.category ?? '',
-                onChange: event => patch({ category: event.target.value }),
-              })),
-            h(Field, { key: 'pri', label: translate('field.priority') },
-              h('select', {
-                className: 'hub-select',
-                value: draft.priority ?? 'normal',
-                onChange: event => patch({ priority: event.target.value }),
-              }, PRIORITY_ORDER.slice().reverse().map(priority => h('option', {
-                key: priority,
-                value: priority,
-              }, translate(`priority.${priority}`))))),
-          ])
+          ? h(Field, { key: 'cat', label: translate('field.category') },
+            h('input', {
+              className: 'hub-input',
+              value: draft.category ?? '',
+              onChange: event => patch({ category: event.target.value }),
+            }))
+          : null,
+        // Its own row rather than sharing one with the category: four choices
+        // need the width, and a category is free text that only needs half.
+        isTodo
+          ? ChoiceRow({
+            labelKey: 'field.priority',
+            choices: PRIORITY_CHOICES,
+            value: draft.priority ?? 'normal',
+            onSelect: value => patch({ priority: value }),
+          })
           : null,
         isTodo
           ? h(Field, { key: 'note', label: translate('field.note') },
