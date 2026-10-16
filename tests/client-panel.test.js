@@ -232,13 +232,41 @@ async function mountPanel() {
   panel.expand = () => { panel.byClass('hub-handle').props.onPointerEnter?.() }
   panel.hoverRail = () => { panel.byClass('hub-root').props.onPointerEnter?.() }
   panel.leave = () => { panel.byClass('hub-root').props.onPointerLeave?.() }
-  panel.click = node => { node?.props.onClick?.({ stopPropagation() {} }) }
+  panel.click = node => { click(node) }
   panel.render()
   await panel.settle()
   if (panel.tree === undefined || panel.byClass('hub-root') === undefined) {
     throw new Error(`the panel did not mount: ${panel.error?.stack ?? `component=${typeof component} tree=${typeof panel.tree}`}`)
   }
   return panel
+}
+
+/**
+ * Click a control the way the DOM does.
+ *
+ * The control's own handler runs first, then the click bubbles to each ancestor
+ * in turn unless something stopped it. That half is the point: this harness has
+ * no event system, so a control nested inside a button that forgets to stop its
+ * click would look exactly like one that remembers. The other half is the
+ * checkbox: the browser ticks the box as part of the click and React reports it
+ * through `onChange` once the click has finished propagating, so ticking one has
+ * to go through the same call as pressing any other control.
+ *
+ * @param node The control being clicked.
+ * @param ancestors Its ancestors, nearest first.
+ * @returns The event, so a test can assert whether the click was stopped.
+ */
+function click(node, ...ancestors) {
+  const event = { stopped: false, stopPropagation() { this.stopped = true } }
+  node?.props.onClick?.(event)
+  for (const ancestor of ancestors) {
+    if (event.stopped) break
+    ancestor?.props.onClick?.(event)
+  }
+  if (node?.props.type === 'checkbox') {
+    node.props.onChange?.({ target: { checked: !node.props.checked } })
+  }
+  return event
 }
 
 /** Render the panel and expand every nested function component, as React does. */
@@ -454,6 +482,123 @@ function findInside(panel, className, predicate) {
   const container = panel.byClass(className)
   return container === undefined ? undefined : findNode(container, predicate)
 }
+
+/** The completion checkbox, on a card or on a row. */
+function doneCheck(panel) {
+  return panel.find(node => node.props?.className === 'hub-done-check')
+}
+
+/** The completion checkbox inside the open dialog. The item list stays mounted
+ *  behind the scrim, so a whole-panel lookup would find the item's own box. */
+function doneCheckInModal(panel) {
+  return findInside(panel, 'hub-modal', node => node.props?.className === 'hub-done-check')
+}
+
+test('a TODO completes from the item itself, without a dialog', async () => {
+  // The interaction this replaces: open the item, click Edit, tick the box,
+  // click Confirm — four activations and two dialogs to flip one boolean.
+  const panel = await mountPanel()
+  await withAnItem(panel, '发布检查清单')
+
+  const item = panel.byClass('hub-card') ?? panel.byClass('hub-row')
+  const check = doneCheck(panel)
+  assert.ok(check !== undefined, 'a TODO must carry its own completion checkbox')
+  assert.equal(check.props.checked, false, 'a new TODO starts unfinished')
+
+  // The item is a button that opens the detail dialog, so the checkbox has to
+  // stop the click: completing a TODO must not also open the thing it changed.
+  const event = click(check, item)
+  await panel.settle()
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  assert.equal(event.stopped, true, 'the checkbox must stop the click before the item')
+  assert.equal(stored()[0].done, true, 'completion must be written through the Remote')
+  assert.equal(panel.byClass('hub-modal'), undefined, 'completing must not open a dialog')
+  assert.equal(doneCheck(panel).props.checked, true,
+    'the item must come back ticked from the store, not from a local guess')
+})
+
+test('the list row completes its item the same way', async () => {
+  const panel = await mountPanel()
+  await withAnItem(panel, '发布检查清单')
+
+  panel.click(panel.byLabel('action.viewGrid'))
+  await panel.settle()
+  const row = panel.byClass('hub-row')
+  assert.ok(row !== undefined, 'the row view must be on screen')
+
+  const check = doneCheck(panel)
+  assert.ok(check !== undefined, 'a row must carry its own completion checkbox')
+  click(check, row)
+  await panel.settle()
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  assert.equal(stored()[0].done, true)
+  assert.equal(panel.byClass('hub-modal'), undefined, 'completing must not open a dialog')
+})
+
+test('neither the create form nor the edit form offers completion', async () => {
+  const panel = await mountPanel()
+  await withAnItem(panel, '发布检查清单')
+
+  panel.click(panel.byLabel('action.create'))
+  await panel.settle()
+  assert.ok(panel.byClass('hub-modal'), 'the create form must be on screen')
+  assert.equal(doneCheckInModal(panel), undefined, 'completion belongs to the item, not the form')
+  panel.click(panel.byText('action.cancel'))
+  await panel.settle()
+
+  panel.click(panel.byClass('hub-card') ?? panel.byClass('hub-row'))
+  await panel.settle()
+  panel.click(panel.byText('action.edit'))
+  await panel.settle()
+  assert.ok(panel.byClass('hub-textarea'), 'the edit form must be on screen')
+  assert.equal(doneCheckInModal(panel), undefined, 'the edit form must not offer completion either')
+})
+
+test('editing a completed TODO leaves it completed', async () => {
+  // The form no longer carries `done`, so the draft still has to round trip it:
+  // an update that dropped the field would clear the completion a checkbox set,
+  // every time somebody changed the title.
+  const panel = await mountPanel()
+  await withAnItem(panel, '发布检查清单')
+  click(doneCheck(panel), panel.byClass('hub-card') ?? panel.byClass('hub-row'))
+  await panel.settle()
+  assert.equal(stored()[0].done, true)
+
+  panel.click(panel.byClass('hub-card') ?? panel.byClass('hub-row'))
+  await panel.settle()
+  panel.click(panel.byText('action.edit'))
+  await panel.settle()
+  fieldByLabel(panel, 'field.title').props.onChange({ target: { value: '发布检查清单 v2' } })
+  await panel.settle()
+  panel.click(panel.byText('action.confirm'))
+  await panel.settle()
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  assert.equal(stored()[0].title, '发布检查清单 v2')
+  assert.equal(stored()[0].done, true, 'saving the edit form must not clear completion')
+})
+
+test('a Note carries no completion checkbox', async () => {
+  // `done` is a TODO field. A checkbox on a Note would write one the model does
+  // not carry, and the Host drops an unrecognised field by design — so it would
+  // read back unfinished forever with nothing to say why.
+  const panel = await mountPanel()
+  panel.expand()
+  await panel.settle()
+  panel.click(panel.byText('tab.note'))
+  await panel.settle()
+  panel.click(panel.byLabel('action.create'))
+  await panel.settle()
+  panel.byClass('hub-textarea').props.onChange?.({ target: { value: '一条笔记' } })
+  await panel.settle()
+  panel.click(panel.byText('action.confirm'))
+  await panel.settle()
+
+  assert.equal(stored()[0].kind, 'note')
+  assert.equal(doneCheck(panel), undefined, 'only a TODO carries completion')
+})
 
 test('a Note saves its title on edit as well', async () => {
   // The payload differs per kind, so a TODO alone does not cover this: a note
