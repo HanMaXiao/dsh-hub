@@ -34,7 +34,8 @@ const todo = { kind: 'todo', description: 'ship the panel' }
 test('a minimal TODO takes every §5 field and its documented defaults', () => {
   const item = normalizeItem(todo, {}, AT)
   assert.deepEqual(Object.keys(item).sort(), [
-    'attachments', 'category', 'createdAt', 'description', 'done', 'id', 'kind', 'note', 'priority', 'title', 'updatedAt',
+    'attachments', 'category', 'completedAt', 'createdAt', 'description', 'done',
+    'id', 'kind', 'note', 'priority', 'title', 'updatedAt',
   ])
   assert.equal(item.kind, 'todo')
   assert.equal(item.title, '')
@@ -42,10 +43,41 @@ test('a minimal TODO takes every §5 field and its documented defaults', () => {
   assert.equal(item.category, '')
   assert.equal(item.priority, 'normal')
   assert.equal(item.done, false)
+  assert.equal(item.completedAt, '', 'an open TODO has not been finished, so it carries no stamp')
   assert.equal(item.note, '')
   assert.deepEqual(item.attachments, [])
   assert.equal(item.createdAt, '2026-10-15T02:04:15.123Z')
   assert.equal(item.updatedAt, item.createdAt)
+})
+
+test('finishing a TODO stamps completedAt, and reopening clears it', () => {
+  // The Host owns this stamp for the same reason it owns `createdAt`: the
+  // Client orders the finished half of the list by it, and a Client-supplied
+  // timestamp would be a second source for a durable fact.
+  const open = normalizeItem(todo, {}, AT)
+  const done = applyPatch(open, { done: true }, {}, AT)
+  assert.equal(done.done, true)
+  assert.equal(done.completedAt, '2026-10-15T02:04:15.123Z')
+
+  const again = applyPatch(done, { title: 'renamed' }, {}, AT)
+  assert.equal(again.completedAt, done.completedAt,
+    'editing a finished TODO must not restamp it or it jumps the finished list')
+
+  const reopened = applyPatch(done, { done: false }, {}, AT)
+  assert.equal(reopened.done, false)
+  assert.equal(reopened.completedAt, '', 'an open TODO carries no stamp, however it got there')
+})
+
+test('a completedAt that is present but malformed is rejected', () => {
+  // Absent is a state the shape defines — a document written before the field
+  // existed has none — but a value that is there and wrong would silently
+  // misfile one task in the finished list.
+  const rejects = () => normalizeItem({ ...todo, done: true, completedAt: 'yesterday' }, {}, AT)
+  assert.throws(rejects, /completedAt/)
+  assert.equal(
+    normalizeItem({ ...todo, done: true, completedAt: '2026-10-15T02:04:15.123Z' }, {}, AT).completedAt,
+    '2026-10-15T02:04:15.123Z',
+  )
 })
 
 test('a NOTE carries text and images and no category or priority', () => {

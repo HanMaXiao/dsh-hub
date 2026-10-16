@@ -105,7 +105,6 @@ window.__ModuleLoader__.load({
       'group.none': '无',
       'group.category': '类别',
       'group.priority': '优先级',
-      'group.done': '完成状态',
       'group.withImages': '含图片',
       'group.textOnly': '纯文字',
       'group.done.yes': '已完成',
@@ -195,7 +194,6 @@ window.__ModuleLoader__.load({
       'group.none': 'None',
       'group.category': 'Category',
       'group.priority': 'Priority',
-      'group.done': 'Completion',
       'group.withImages': 'With images',
       'group.textOnly': 'Text only',
       'group.done.yes': 'Done',
@@ -382,9 +380,13 @@ window.__ModuleLoader__.load({
      it, and only to keep their cap from outgrowing a short window. */
   --hub-edge-clearance: var(--dsh-frame-chrome-top, 24px);
 
-  /* One easing, three durations. Every transition below is a reply to
+  /* One easing, four durations. Every transition below is a reply to
      something the pointer or the keyboard just did. */
   --hub-ease: cubic-bezier(.22,.61,.36,1);
+  /* Below 100ms on purpose: a region folding is the user confirming a click,
+     not the panel performing a gesture, and anything slower reads as lag on the
+     press rather than as motion answering it. */
+  --hub-instant: 90ms;
   --hub-fast: 110ms;
   --hub-mid: 190ms;
   --hub-slow: 300ms;
@@ -761,7 +763,7 @@ window.__ModuleLoader__.load({
    is the structural device — it says "these belong together" without drawing
    a box around them.
    -------------------------------------------------------------------------- */
-.hub-groups { display: flex; flex-direction: column; }
+.hub-groups { display: flex; flex-direction: column; padding-bottom: 8px; }
 .hub-group { margin-top: 10px; }
 .hub-group:first-child { margin-top: 4px; }
 .hub-group-head {
@@ -771,6 +773,58 @@ window.__ModuleLoader__.load({
 }
 .hub-group-rule { flex: 1 1 auto; height: 1px; background: var(--hub-line); }
 .hub-group-count { color: var(--hub-ink-3); letter-spacing: 0; }
+
+/* --------------------------------------------------------------------------
+   Regions. A TODO is open or finished, and the two are separate lists rather
+   than one list sorted by whatever the user picked: an unfinished task hidden
+   among finished ones is the whole problem. Note and Prompt have no done flag
+   and render as a single unlabelled region, so nothing here shows for them.
+
+   The body collapses on grid-template-rows 0fr -> 1fr, which is the one height
+   transition that measures its own content — max-height needs a number the
+   panel would have to keep in step with every card, and height:auto does not
+   transition at all. The inner box carries the overflow:hidden that lets an fr
+   track shrink below its content, and therefore does the clipping; the padding
+   that would cost at zero height is why the space below the last card lives on
+   .hub-groups instead, inside the clip.
+   -------------------------------------------------------------------------- */
+.hub-regions { display: flex; flex-direction: column; }
+.hub-region-head {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  margin-top: 10px; padding: 5px 4px;
+  border: none; border-radius: 7px;
+  background: transparent; color: var(--hub-ink-2);
+  font: inherit; font-size: 11.5px; text-align: left; cursor: pointer;
+  transition: background var(--hub-instant) ease, color var(--hub-instant) ease;
+}
+.hub-region:first-child .hub-region-head { margin-top: 4px; }
+.hub-region-head:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--hub-ink); }
+.hub-region-head:active { transform: scale(.995); }
+.hub-region-label { font-weight: 500; }
+.hub-region-chevron {
+  display: flex; flex: 0 0 auto; margin-left: auto; color: var(--hub-ink-3);
+  transition: transform var(--hub-instant) var(--hub-ease);
+}
+.hub-region-head[aria-expanded="true"] .hub-region-chevron { transform: rotate(180deg); }
+.hub-region-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--hub-instant) var(--hub-ease);
+}
+.hub-region[data-open="true"] .hub-region-body { grid-template-rows: 1fr; }
+/* A folded region is not merely short. Without this the items inside it stay
+   focusable and still announced — a list the eye cannot see and the keyboard
+   can still walk into. The delayed step holds it visible for the length of the
+   collapse and drops it the instant the fold finishes. */
+.hub-region-inner {
+  min-height: 0; overflow: hidden;
+  visibility: hidden;
+  transition: visibility 0s linear var(--hub-instant);
+}
+.hub-region[data-open="true"] .hub-region-inner { visibility: visible; transition-delay: 0s; }
+/* The first group sits directly under its region header rather than repeating
+   the margin every other group needs. */
+.hub-region-inner > .hub-groups > .hub-group:first-child { margin-top: 2px; }
 
 .hub-grid {
   display: grid;
@@ -996,19 +1050,18 @@ window.__ModuleLoader__.load({
 .hub-label {
   color: var(--hub-ink-3); font-size: 10.5px; letter-spacing: .06em;
 }
-.hub-input, .hub-textarea, .hub-select {
+.hub-input, .hub-textarea {
   width: 100%; padding: 6px 8px;
   border: 1px solid var(--hub-line-strong); border-radius: 7px;
   background: var(--dsw-alias-bg-layer-1); color: var(--hub-ink);
   font: inherit; font-size: 12.5px;
   transition: border-color var(--hub-fast) ease, background var(--hub-fast) ease;
 }
-.hub-input:hover, .hub-textarea:hover, .hub-select:hover { border-color: var(--hub-line-strong); background: var(--dsw-alias-interactive-bg-hover); }
-.hub-input:focus, .hub-textarea:focus, .hub-select:focus {
+.hub-input:hover, .hub-textarea:hover { border-color: var(--hub-line-strong); background: var(--dsw-alias-interactive-bg-hover); }
+.hub-input:focus, .hub-textarea:focus {
   outline: none; border-color: var(--dsw-alias-state-business-primary);
 }
 .hub-textarea { min-height: 88px; line-height: 1.55; resize: vertical; }
-.hub-select { cursor: pointer; }
 /* The native file control is the one place the platform's chrome would show
    through, so only its button is redrawn — the input itself stays the real
    one, so the picker and its accessibility behaviour are untouched. */
@@ -1021,8 +1074,43 @@ window.__ModuleLoader__.load({
   transition: background var(--hub-fast) ease;
 }
 .hub-input[type="file"]::file-selector-button:hover { background: var(--dsw-alias-interactive-bg-hover-solid); }
-.hub-inline { display: flex; gap: 8px; }
-.hub-inline > * { flex: 1 1 0; min-width: 0; }
+
+/* --------------------------------------------------------------------------
+   The priority field: a radio row the panel draws, not a platform select.
+
+   A native select popup is rendered outside the page, by the OS, in the OS's
+   own colours. The document does carry color-scheme — dsh-client-ui-layout
+   projects the resolved scheme onto the document element on every theme change
+   — and it still arrives light: the panel's dark form is followed by a white
+   list that no token in this file can reach. So the control is drawn here
+   instead, and it wears the same marks MenuGroup draws — one leading check on
+   the selection, ink weight carrying the rest — laid out along a row rather
+   than down a menu.
+   -------------------------------------------------------------------------- */
+.hub-choices {
+  display: flex; gap: 2px; padding: 2px;
+  border: 1px solid var(--hub-line-strong); border-radius: 7px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+.hub-choice {
+  flex: 1 1 0; min-width: 0;
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+  padding: 5px 4px;
+  border: none; border-radius: 5px;
+  background: transparent; color: var(--hub-ink-2);
+  font: inherit; font-size: 12.5px; cursor: pointer;
+  transition: background var(--hub-fast) ease, color var(--hub-fast) ease;
+}
+.hub-choice:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--hub-ink); }
+.hub-choice:active { transform: scale(.975); }
+.hub-choice[aria-checked="true"] {
+  background: var(--dsw-alias-interactive-bg-hover); color: var(--hub-ink); font-weight: 500;
+}
+.hub-choice > span:first-child {
+  display: flex; flex: 0 0 auto; width: 12px; justify-content: center; color: var(--hub-ink-3);
+}
+.hub-choice[aria-checked="true"] > span:first-child { color: var(--hub-accent); }
+.hub-choice-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .hub-file-list { display: flex; flex-wrap: wrap; gap: 5px; }
 .hub-file {
@@ -1261,7 +1349,7 @@ window.__ModuleLoader__.load({
      * older build that has never heard of the field.
      */
     const REQUIRED_KEYS = {
-      todo: ['id', 'kind', 'title', 'description', 'category', 'priority', 'done', 'attachments', 'note', 'createdAt', 'updatedAt'],
+      todo: ['id', 'kind', 'title', 'description', 'category', 'priority', 'done', 'completedAt', 'attachments', 'note', 'createdAt', 'updatedAt'],
       note: ['id', 'kind', 'title', 'text', 'images', 'createdAt', 'updatedAt'],
       prompt: ['id', 'kind', 'title', 'text', 'images', 'createdAt', 'updatedAt'],
     }
@@ -1324,6 +1412,9 @@ window.__ModuleLoader__.load({
     const EDGE_ICON = { left: 'dockLeft', right: 'dockRight', bottom: 'dockBottom' }
     const EDGE_LABEL_KEY = { left: 'dock.left', right: 'dock.right', bottom: 'dock.bottom' }
 
+    /** Preference key per TODO region id. */
+    const REGION_PREFS = { open: 'todoOpen', done: 'todoDone' }
+
     /** Only these two views exist; both are persisted. */
     const VIEWS = ['grid', 'list']
 
@@ -1376,6 +1467,11 @@ window.__ModuleLoader__.load({
       let state = {
         edge: EDGES.includes(storedPrefs.edge) ? storedPrefs.edge : 'right',
         view: VIEWS.includes(storedPrefs.view) ? storedPrefs.view : 'grid',
+        // Both TODO regions start folded. The counts are the point of the split,
+        // and a list that opens itself is the mixing it replaces — so the user
+        // opens the half they came for.
+        todoOpen: storedPrefs.todoOpen === true,
+        todoDone: storedPrefs.todoDone === true,
       }
       const listeners = new Set()
       return {
@@ -1386,7 +1482,7 @@ window.__ModuleLoader__.load({
         },
         update(patch) {
           const next = { ...state, ...patch }
-          if (next.edge === state.edge && next.view === state.view) return
+          if (Object.keys(next).every(key => next[key] === state[key])) return
           state = next
           for (const listener of listeners) listener()
         },
@@ -1489,6 +1585,15 @@ window.__ModuleLoader__.load({
     const PRIORITY_ORDER = ['urgent', 'high', 'normal', 'low']
 
     /**
+     * The priority field's choices, least urgent first — the order the native
+     * select used to list them in, so the row reads the same way the dropdown
+     * did. Grouping above keeps the most urgent first, which is the opposite
+     * order on purpose (§6).
+     */
+    const PRIORITY_CHOICES = PRIORITY_ORDER.slice().reverse()
+      .map(id => ({ id, labelKey: `priority.${id}` }))
+
+    /**
      * Sort fields, per kind (§6).
      *
      * Obsidian's `作者` and `标题` are absent on purpose and are NOT rendered as
@@ -1526,13 +1631,19 @@ window.__ModuleLoader__.load({
     const SORT_FIELD_LABEL_KEY = Object.fromEntries(Object.entries(SORT_FIELDS)
       .map(([kind, fields]) => [kind, Object.fromEntries(fields.map(field => [field.id, field.labelKey]))]))
 
-    /** Grouping choices, per kind (§6). */
+    /**
+     * Grouping choices, per kind (§6).
+     *
+     * `完成状态` is absent from TODO on purpose: completion is no longer something
+     * a menu arranges, it is the frame the list is built in — see `runRegions`.
+     * Offering it here would put a group header inside a region that is already
+     * one completion state, which says nothing twice.
+     */
     const GROUP_FIELDS = {
       todo: [
         { id: 'none', labelKey: 'group.none' },
         { id: 'category', labelKey: 'group.category' },
         { id: 'priority', labelKey: 'group.priority' },
-        { id: 'done', labelKey: 'group.done' },
       ],
       note: [
         { id: 'none', labelKey: 'group.none' },
@@ -1666,6 +1777,9 @@ window.__ModuleLoader__.load({
           ? raw.priority
           : 'normal',
         done: kind === 'todo' ? raw.done === true : false,
+        // A TODO finished before this field existed carries no stamp, and `0`
+        // sorts it as the oldest completion rather than as the newest.
+        completedAt: kind === 'todo' ? Date.parse(raw.completedAt) || 0 : 0,
         createdAt: Date.parse(raw.createdAt) || 0,
         updatedAt: Date.parse(raw.updatedAt) || 0,
         size,
@@ -1679,9 +1793,15 @@ window.__ModuleLoader__.load({
      * Ascending means name A to Z, date old to new, size small to large and
      * priority low to high; descending inverts the primary key only.
      *
+     * `completedAt` is the one field id that is not in `SORT_FIELDS`: the menu
+     * does not offer it, because the finished region orders itself by it
+     * whatever the user chose (see `runRegions`). It lives here rather than in a
+     * comparator of its own so that the `createdAt`/`id` tiebreak below still
+     * ends the ordering.
+     *
      * @param {object} a First normalized item.
      * @param {object} b Second normalized item.
-     * @param {string} field Field id from `SORT_FIELDS`.
+     * @param {string} field Field id from `SORT_FIELDS`, or `completedAt`.
      * @param {'asc'|'desc'} direction Direction id.
      * @returns a negative, zero or positive ordering.
      */
@@ -1693,6 +1813,7 @@ window.__ModuleLoader__.load({
         case 'updatedAt': difference = a.updatedAt - b.updatedAt; break
         case 'createdAt': difference = a.createdAt - b.createdAt; break
         case 'size': difference = a.size - b.size; break
+        case 'completedAt': difference = a.completedAt - b.completedAt; break
         case 'category': difference = collator.compare(a.category, b.category); break
         case 'priority': difference = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]; break
         default: difference = 0
@@ -1753,10 +1874,11 @@ window.__ModuleLoader__.load({
             }))
             .filter(group => group.items.length > 0)
         }
-        return [
-          { id: 'done:false', labelKey: 'group.done.no', items: items.filter(item => !item.done) },
-          { id: 'done:true', labelKey: 'group.done.yes', items: items.filter(item => item.done) },
-        ].filter(group => group.items.length > 0)
+        // `done` is not a grouping choice any more — completion is the frame the
+        // TODO list is built in, and `runRegions` puts it there instead. Anything
+        // unrecognised lands here too, so a query naming an option this build has
+        // dropped reads as one flat group rather than as a silent split.
+        return [{ id: 'none', labelKey: null, items }]
       }
       return [
         { id: 'images', labelKey: 'group.withImages', items: items.filter(item => item.files.length > 0) },
@@ -1779,6 +1901,54 @@ window.__ModuleLoader__.load({
       )
       const sorted = [...matching].sort((a, b) => compareItems(a, b, query.field, query.direction))
       return groupItems(sorted, kind, query.group)
+    }
+
+    /** Every item across a region's groups, and their count. */
+    function regionTotal(groups) {
+      return groups.reduce((total, group) => total + group.items.length, 0)
+    }
+
+    /**
+     * Split a kind's items into the regions the panel frames them in.
+     *
+     * A TODO is open or finished, and the two are never one list: the open half
+     * answers "what is left", the finished half is a log of what was done. The
+     * split runs *before* the pipeline so search, filter, sort and grouping all
+     * still apply inside each region rather than across the seam.
+     *
+     * The finished region orders itself by completion, newest first, whatever
+     * the user chose in the sort menu — a log whose newest entry is not at the
+     * top is not a log. The menu still governs the open region, and the menu is
+     * not silently contradicted: it is the finished region that overrides.
+     *
+     * A region with nothing in it is not returned at all, so a filter that hides
+     * one side leaves no empty header behind, and the finished region appears at
+     * the moment there is something to put in it.
+     *
+     * @param {object[]} items Every normalized item the Host returned.
+     * @param {string} kind The active tab.
+     * @param {object} query The tab's query state.
+     * @returns the regions, in display order, each with its own groups.
+     */
+    function runRegions(items, kind, query) {
+      if (kind !== 'todo') return [{ id: 'all', labelKey: null, groups: runQuery(items, kind, query) }]
+      const todo = items.filter(item => item.kind === 'todo')
+      return [
+        {
+          id: 'open',
+          labelKey: 'group.done.no',
+          groups: runQuery(todo.filter(item => !item.done), kind, query),
+        },
+        {
+          id: 'done',
+          labelKey: 'group.done.yes',
+          groups: runQuery(todo.filter(item => item.done), kind, {
+            ...query,
+            field: 'completedAt',
+            direction: 'desc',
+          }),
+        },
+      ].filter(region => regionTotal(region.groups) > 0)
     }
 
     /* ==================================================================== *
@@ -2129,6 +2299,89 @@ window.__ModuleLoader__.load({
       ])
     }
 
+    /** One group of items: a rule-and-count header when it has a label. */
+    function GroupSection(props) {
+      const group = props.group
+      return h('section', { className: 'hub-group' }, [
+        group.labelKey === null && group.label === undefined
+          ? null
+          : h('div', { key: 'h', className: 'hub-group-head' }, [
+            h('span', { key: 'l' }, group.labelKey === null ? group.label : translate(group.labelKey)),
+            h('span', { key: 'r', className: 'hub-group-rule' }),
+            h('span', { key: 'c', className: 'hub-group-count' },
+              `${group.items.length} ${translate('count.unit')}`),
+          ]),
+        props.view === 'grid'
+          ? h('div', { key: 'g', className: 'hub-grid' },
+            group.items.map((item, index) => ItemCard({
+              key: item.id,
+              item,
+              index,
+              onOpen: props.onOpen,
+              onToggle: props.onToggle,
+              onCopy: props.onCopy,
+              onDelete: props.onDelete,
+            })))
+          : h('div', { key: 'g', className: 'hub-rows' },
+            group.items.map((item, index) => ItemRow({
+              key: item.id,
+              item,
+              index,
+              onOpen: props.onOpen,
+              onToggle: props.onToggle,
+              onCopy: props.onCopy,
+              onDelete: props.onDelete,
+            }))),
+      ])
+    }
+
+    /**
+     * One region: a header carrying its label and count, and a body that folds.
+     *
+     * The body stays mounted either way. Folding it to `0fr` rather than
+     * unmounting it is what lets the collapse animate at all, and it keeps a
+     * region's scroll position across a fold and unfold.
+     *
+     * A region with no label — every Note and Prompt — draws no header and never
+     * folds: there is one list there, and a header over it would say nothing.
+     */
+    function Region(props) {
+      const region = props.region
+      const labelled = region.labelKey !== null
+      // An unlabelled region is every Note and Prompt: one undivided list with
+      // nothing to fold, so it is always open rather than folded to a header it
+      // does not have.
+      const open = !labelled || props.open === true
+      const shared = {
+        view: props.view,
+        onOpen: props.onOpen,
+        onToggle: props.onToggle,
+        onCopy: props.onCopy,
+        onDelete: props.onDelete,
+      }
+      return h('section', { className: 'hub-region', 'data-open': String(open) }, [
+        labelled
+          ? h('button', {
+            key: 'h',
+            type: 'button',
+            className: 'hub-region-head',
+            'aria-expanded': String(open),
+            onClick: props.onFold,
+          }, [
+            h('span', { key: 'l', className: 'hub-region-label' }, translate(region.labelKey)),
+            h('span', { key: 'c', className: 'hub-group-count' },
+              `${regionTotal(region.groups)} ${translate('count.unit')}`),
+            h('span', { key: 'a', className: 'hub-region-chevron' },
+              h(Icon, { name: 'chevronDown', size: 12 })),
+          ])
+          : null,
+        h('div', { key: 'b', className: 'hub-region-body' },
+          h('div', { className: 'hub-region-inner' },
+            h('div', { className: 'hub-groups' },
+              region.groups.map(group => GroupSection({ group, ...shared }))))),
+      ])
+    }
+
     /** The shared modal frame: a scrim, a title bar with the right-hand actions. */
     function Modal(props) {
       return h('div', {
@@ -2152,6 +2405,46 @@ window.__ModuleLoader__.load({
       return h('label', { className: 'hub-field' }, [
         h('span', { key: 'l', className: 'hub-label' }, props.label),
         props.children,
+      ])
+    }
+
+    /**
+     * One labelled radio row: a closed set of choices, always visible, exactly
+     * one marked.
+     *
+     * It brings its own label rather than going through `Field`, because
+     * `Field` renders a `<label>` and a label forwards a click to the first
+     * labelable descendant — which here is always the first option, so clicking
+     * the word "Priority" would silently select it. The group is named with the
+     * same string the label shows, so nothing is announced twice.
+     *
+     * @param {{labelKey: string, value: string, choices: Array<{id: string, labelKey: string}>, onSelect: (id: string) => void}} props
+     * @returns the labelled radio row.
+     */
+    function ChoiceRow(props) {
+      return h('div', { className: 'hub-field' }, [
+        h('span', { key: 'l', className: 'hub-label' }, translate(props.labelKey)),
+        h('div', {
+          key: 'g',
+          className: 'hub-choices',
+          role: 'radiogroup',
+          'aria-label': translate(props.labelKey),
+        }, props.choices.map(choice => {
+          const selected = choice.id === props.value
+          return h('button', {
+            key: choice.id,
+            type: 'button',
+            className: 'hub-choice',
+            role: 'radio',
+            'aria-checked': String(selected),
+            onClick: () => props.onSelect(choice.id),
+          }, [
+            // The column is a fixed width rather than sized by the check, so the
+            // labels do not jump sideways as the selection moves along the row.
+            h('span', { key: 'i' }, selected ? h(Icon, { name: 'check', size: 12, width: 2 }) : null),
+            h('span', { key: 'l', className: 'hub-choice-label' }, translate(choice.labelKey)),
+          ])
+        })),
       ])
     }
 
@@ -2204,23 +2497,22 @@ window.__ModuleLoader__.load({
             onChange: event => patch(isTodo ? { description: event.target.value } : { text: event.target.value }),
           })),
         isTodo
-          ? h('div', { key: 'todo', className: 'hub-inline' }, [
-            h(Field, { key: 'cat', label: translate('field.category') },
-              h('input', {
-                className: 'hub-input',
-                value: draft.category ?? '',
-                onChange: event => patch({ category: event.target.value }),
-              })),
-            h(Field, { key: 'pri', label: translate('field.priority') },
-              h('select', {
-                className: 'hub-select',
-                value: draft.priority ?? 'normal',
-                onChange: event => patch({ priority: event.target.value }),
-              }, PRIORITY_ORDER.slice().reverse().map(priority => h('option', {
-                key: priority,
-                value: priority,
-              }, translate(`priority.${priority}`))))),
-          ])
+          ? h(Field, { key: 'cat', label: translate('field.category') },
+            h('input', {
+              className: 'hub-input',
+              value: draft.category ?? '',
+              onChange: event => patch({ category: event.target.value }),
+            }))
+          : null,
+        // Its own row rather than sharing one with the category: four choices
+        // need the width, and a category is free text that only needs half.
+        isTodo
+          ? ChoiceRow({
+            labelKey: 'field.priority',
+            choices: PRIORITY_CHOICES,
+            value: draft.priority ?? 'normal',
+            onSelect: value => patch({ priority: value }),
+          })
           : null,
         isTodo
           ? h(Field, { key: 'note', label: translate('field.note') },
@@ -2563,6 +2855,23 @@ window.__ModuleLoader__.load({
 
       const openDetail = useCallback(item => dispatch({ type: 'modal', modal: { kind: 'detail', id: item.id } }))
 
+      // Declared ahead of every writer that lands an item somewhere: `submit` and
+      // the completion toggle both put something in a region and then need it
+      // open, and a `useCallback` dependency array reads this binding at
+      // declaration time.
+      const setRegionOpen = useCallback((id, open) => {
+        const key = REGION_PREFS[id]
+        if (key === undefined || uiStore.getSnapshot()[key] === open) return
+        uiStore.update({ [key]: open })
+        writePrefs({ [key]: open })
+      }, [])
+
+      const foldRegion = useCallback(id => {
+        const key = REGION_PREFS[id]
+        if (key === undefined) return
+        setRegionOpen(id, !(uiStore.getSnapshot()[key] === true))
+      }, [setRegionOpen])
+
       const openEdit = useCallback(item => dispatch({
         type: 'modal',
         modal: { kind: 'edit', id: item.id },
@@ -2651,6 +2960,11 @@ window.__ModuleLoader__.load({
           closeModal()
           say(null)
           await load()
+          // The same rule the completion toggle follows: a region opens itself
+          // when something lands in it. A new TODO would otherwise disappear
+          // into a folded region the moment the dialog closed, and the empty
+          // state would read as "the save did not work".
+          if (!editing && state.tab === 'todo') setRegionOpen('open', true)
         }
         catch (error) {
           say(failureText(error) || translate('state.failed'), 'error')
@@ -2658,7 +2972,7 @@ window.__ModuleLoader__.load({
         finally {
           dispatch({ type: 'busy', busy: false })
         }
-      }, [state.draft, state.modal, state.tab, closeModal, say, load])
+      }, [state.draft, state.modal, state.tab, closeModal, say, load, setRegionOpen])
 
       const confirmDelete = useCallback(async () => {
         const id = state.modal?.id
@@ -2694,6 +3008,11 @@ window.__ModuleLoader__.load({
           await hubCall('update', item.id, { done })
           say(null)
           await load()
+          // The region the item just landed in opens itself. Folding is what
+          // keeps the two halves apart, but a task that moves while its region
+          // is shut has moved invisibly — the count would move and nothing else
+          // would, which reads as a miscount rather than as a task finishing.
+          setRegionOpen(done ? 'done' : 'open', true)
         }
         catch (error) {
           say(failureText(error) || translate('state.failed'), 'error')
@@ -2701,7 +3020,7 @@ window.__ModuleLoader__.load({
         finally {
           writingDone.current = false
         }
-      }, [say, load])
+      }, [say, load, setRegionOpen])
 
       const copyItem = useCallback(async (item) => {
         const copied = await copyText(item.content)
@@ -2715,12 +3034,15 @@ window.__ModuleLoader__.load({
         writePrefs({ view })
       }, [])
 
-      const groups = useMemo(
-        () => runQuery(state.items, state.tab, query),
+      const regions = useMemo(
+        () => runRegions(state.items, state.tab, query),
         [state.items, state.tab, query],
       )
 
-      const visible = useMemo(() => groups.reduce((total, group) => total + group.items.length, 0), [groups])
+      const visible = useMemo(
+        () => regions.reduce((total, region) => total + regionTotal(region.groups), 0),
+        [regions],
+      )
 
       // The grid's column count follows the measured width, so the n-by-m layout
       // tracks the window instead of a hard-coded column count. It mirrors the
@@ -2770,38 +3092,18 @@ window.__ModuleLoader__.load({
                   'aria-label': translate('action.create'),
                   onClick: openCreate,
                 }, h(Icon, { name: 'plus', size: 24 }))))
-            : h('div', { className: 'hub-groups' },
-              groups.map(group => h('section', { key: group.id, className: 'hub-group' }, [
-                group.labelKey === null && group.label === undefined
-                  ? null
-                  : h('div', { key: 'h', className: 'hub-group-head' }, [
-                    h('span', { key: 'l' }, group.labelKey === null ? group.label : translate(group.labelKey)),
-                    h('span', { key: 'r', className: 'hub-group-rule' }),
-                    h('span', { key: 'c', className: 'hub-group-count' },
-                      `${group.items.length} ${translate('count.unit')}`),
-                  ]),
-                ui.view === 'grid'
-                  ? h('div', { key: 'g', className: 'hub-grid' },
-                    group.items.map((item, index) => ItemCard({
-                      key: item.id,
-                      item,
-                      index,
-                      onOpen: openDetail,
-                      onToggle: (target, done) => { void toggleDone(target, done) },
-                      onCopy: item => { void copyItem(item) },
-                      onDelete: askDelete,
-                    })))
-                  : h('div', { key: 'g', className: 'hub-rows' },
-                    group.items.map((item, index) => ItemRow({
-                      key: item.id,
-                      item,
-                      index,
-                      onOpen: openDetail,
-                      onToggle: (target, done) => { void toggleDone(target, done) },
-                      onCopy: item => { void copyItem(item) },
-                      onDelete: askDelete,
-                    }))),
-              ])))
+            : h('div', { className: 'hub-regions' },
+              regions.map(region => Region({
+                key: region.id,
+                region,
+                open: ui[REGION_PREFS[region.id]],
+                view: ui.view,
+                onFold: () => foldRegion(region.id),
+                onOpen: openDetail,
+                onToggle: (target, done) => { void toggleDone(target, done) },
+                onCopy: item => { void copyItem(item) },
+                onDelete: askDelete,
+              })))
 
       // The stylesheet is a React element rather than an inserted one: a
       // `dsh.client` bundle has no `styles.insert`, and tying the rule sheet to
