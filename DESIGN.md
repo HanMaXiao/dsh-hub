@@ -283,6 +283,14 @@ not optional.
   `theme` is deliberately absent from `inject` for the same reason `remote` is.
   All colour is `--dsw-alias-*`; no literal colours outside the icon artwork.
   The app owns the three-state preference — the plugin never keeps a second one.
+- **Every control is painted here.** A closed choice is a radio row, never a
+  native `<select>`: its popup is rendered outside the page by the OS, in the
+  OS's own colours, so in the dark theme it opens as a white list over a dark
+  form. `color-scheme` does not reach it — `dsh-client-ui-layout` already
+  projects the resolved scheme onto the document element and the popup stays
+  light — and no `--dsw-alias-*` token reaches a surface this file does not
+  paint. The `<input type="file">` is the one exception, and only its
+  `::file-selector-button` is redrawn: the picker itself must stay the real one.
 - **No emoji, no redundant prose.** Every affordance is an inline SVG with an
   `aria-label`.
 

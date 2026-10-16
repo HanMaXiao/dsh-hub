@@ -660,6 +660,77 @@ async function completeNamed(panel, name) {
  * depend on how fast the machine is.
  */
 function pause(ms) { return new Promise(resolve => setTimeout(resolve, ms)) }
+/** Drive the panel from a fresh load to the open edit form. */
+async function withTheEditForm(panel, title) {
+  await withAnItem(panel, title)
+  panel.click(panel.byClass('hub-card') ?? panel.byClass('hub-row'))
+  await panel.settle()
+  panel.click(panel.byText('action.edit'))
+  await panel.settle()
+  assert.ok(panel.byClass('hub-textarea'), 'the edit form must be on screen')
+}
+
+/** The priority radio row, if the open form has one. */
+function choiceRow(panel) {
+  return panel.find(node => node.props?.className === 'hub-choices')
+}
+
+test('priority is a radio row the panel paints, not a platform select', async () => {
+  // The native popup is drawn by the OS outside the page, in the OS's own
+  // colours, so in the dark theme it opened as a white list over a dark form —
+  // and no token this bundle owns reaches a surface it does not paint.
+  // `color-scheme` is not the way out either: the app already projects the
+  // resolved scheme onto the document element, and the popup stays light.
+  const panel = await mountPanel()
+  await withTheEditForm(panel, '发布检查清单')
+
+  const group = choiceRow(panel)
+  assert.ok(group !== undefined, 'the priority field must be drawn by the panel')
+  assert.equal(group.props.role, 'radiogroup')
+  assert.equal(panel.find(node => node.type === 'select'), undefined,
+    'a native select popup cannot follow the app theme')
+  assert.equal(group.children.length, 4, 'every priority must be offered')
+
+  const marked = group.children.filter(choice => choice.props['aria-checked'] === 'true')
+  assert.equal(marked.length, 1, 'exactly one choice carries the check')
+  assert.equal(marked[0].children[1].children[0], 'priority.normal',
+    'a new TODO opens on the default priority')
+})
+
+test('choosing a priority writes it through the Remote', async () => {
+  const panel = await mountPanel()
+  await withTheEditForm(panel, '发布检查清单')
+
+  const next = choiceRow(panel).children.find(choice => choice.props['aria-checked'] === 'false')
+  panel.click(next)
+  await panel.settle()
+
+  const after = choiceRow(panel)
+  assert.equal(after.children.length, 4, 'the row redraws rather than losing its choices')
+  const marked = after.children.filter(choice => choice.props['aria-checked'] === 'true')
+  assert.equal(marked[0].children[1].children[0], 'priority.low',
+    'the check must travel to the chosen priority')
+
+  panel.click(panel.byText('action.confirm'))
+  await panel.settle()
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  assert.equal(stored()[0].priority, 'low', 'the chosen priority must reach the store')
+})
+
+test('a Note offers no priority row', async () => {
+  const panel = await mountPanel()
+  panel.expand()
+  await panel.settle()
+  panel.click(panel.byText('tab.note'))
+  await panel.settle()
+  panel.click(panel.byLabel('action.create'))
+  await panel.settle()
+  panel.byClass('hub-textarea').props.onChange?.({ target: { value: '一条笔记' } })
+  await panel.settle()
+
+  assert.equal(choiceRow(panel), undefined, 'priority is a TODO field')
+})
 
 /** The completion checkbox, on a card or on a row. */
 function doneCheck(panel) {
