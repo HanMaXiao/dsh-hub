@@ -274,9 +274,20 @@ and transition in the panel; no state depends on one to be legible.
 
 ## 9. Docking
 
-Four edge anchors (top / right / bottom / left). Collapsed shows a slim handle
-strip only. Pointer entering the handle — or a click — expands it. Pointer
-leaving plus an idle delay collapses it again. The chosen edge is persisted.
+Three edge anchors — **left / right / bottom**. Collapsed shows a slim handle
+strip at the middle of its edge, and nothing else. Pointer entering *the handle*
+— or a click — expands it; entering the rail around the handle does not, or a
+7px strip down the whole window edge would open the panel under a pointer that
+never went near it. Pointer leaving the rail plus a short idle delay collapses
+it again. The chosen edge is persisted.
+
+**There is no top anchor.** The application owns the top of its window: a
+full-width, drag-enabled titlebar, and under it the conversation's own title row.
+A rail there either lands inside the drag region, where the pointer never reaches
+it, or — once cleared of that — covers the conversation's title. Both failures
+are silent, so the edge is withdrawn rather than special-cased. A stored
+`top` preference falls back to `right`, which is the next anchor in preference
+order.
 
 ## 10. Language
 

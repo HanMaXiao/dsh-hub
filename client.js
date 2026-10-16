@@ -85,7 +85,6 @@ window.__ModuleLoader__.load({
       'tab.todo': 'TODO',
       'tab.note': 'Note',
       'tab.prompt': 'Prompt',
-      'dock.top': '停靠到上边',
       'dock.right': '停靠到右边',
       'dock.bottom': '停靠到下边',
       'dock.left': '停靠到左边',
@@ -176,7 +175,6 @@ window.__ModuleLoader__.load({
       'tab.todo': 'TODO',
       'tab.note': 'Note',
       'tab.prompt': 'Prompt',
-      'dock.top': 'Dock to the top edge',
       'dock.right': 'Dock to the right edge',
       'dock.bottom': 'Dock to the bottom edge',
       'dock.left': 'Dock to the left edge',
@@ -283,7 +281,6 @@ window.__ModuleLoader__.load({
       chevronRight: [{ t: 'path', a: { d: 'M9.5 6l6 6-6 6' } }],
       chevronLeft: [{ t: 'path', a: { d: 'M14.5 6l-6 6 6 6' } }],
       chevronDown: [{ t: 'path', a: { d: 'M6 9.5l6 6 6-6' } }],
-      dockTop: [{ t: 'path', a: { d: 'M4.5 15.5h15M12 15.5V5M12 5l-4 4M12 5l4 4' } }],
       dockRight: [{ t: 'path', a: { d: 'M9 4.5v15M9 12h10M19 12l-4-4M19 12l-4 4' } }],
       dockBottom: [{ t: 'path', a: { d: 'M4.5 8.5h15M12 8.5V19M12 19l-4-4M12 19l4-4' } }],
       dockLeft: [{ t: 'path', a: { d: 'M15 4.5v15M15 12H5M5 12l4-4M5 12l4 4' } }],
@@ -379,19 +376,11 @@ window.__ModuleLoader__.load({
   --hub-handle-open: ${HANDLE_OPEN}px;
   --hub-tab-index: 0;
 
-  /* Where the top rail starts: flush against the bottom of the window chrome.
-     The shell draws a full-width, drag-enabled titlebar across the top
-     (--dsh-windows-titlebar-height, or 48px of traffic-light clearance on
-     macOS) and publishes two offsets for it. --dsh-frame-chrome-top is that
-     chrome's own height, and --dsh-frame-overlay-top is it plus 20px of
-     breathing room for overlays that float free of the frame. The rail is not
-     floating free — it is a docked edge — so it takes the first and sits flush,
-     with no gap under the titlebar. The second is the fallback for macOS, which
-     publishes only the clearance.
-     The offset is load bearing either way: inside the drag region the rail
-     paints under the titlebar *and* the pointer never reaches it, so
-     hover-to-expand silently stops working on the top edge only. */
-  --hub-top-inset: var(--dsh-frame-chrome-top, var(--dsh-frame-top-clearance, 0px));
+  /* How much of the window's top and bottom the panel stays clear of. The
+     shell publishes its own chrome height (--dsh-frame-chrome-top); 24px is the
+     floor for hosts that publish nothing. Only the left and right panels read
+     it, and only to keep their cap from outgrowing a short window. */
+  --hub-edge-clearance: var(--dsh-frame-chrome-top, 24px);
 
   /* One easing, three durations. Every transition below is a reply to
      something the pointer or the keyboard just did. */
@@ -435,11 +424,9 @@ window.__ModuleLoader__.load({
 }
 .hub-root[data-edge="left"] { left: 0; }
 .hub-root[data-edge="right"] { right: 0; flex-direction: row-reverse; }
-.hub-root[data-edge="top"], .hub-root[data-edge="bottom"] {
-  left: 0; right: 0; height: var(--hub-handle-thickness); flex-direction: row;
+.hub-root[data-edge="bottom"] {
+  left: 0; right: 0; bottom: 0; height: var(--hub-handle-thickness); flex-direction: row;
 }
-.hub-root[data-edge="top"] { top: var(--hub-top-inset); }
-.hub-root[data-edge="bottom"] { bottom: 0; }
 
 /* The collapsed handle sits at the middle of its edge — the one place the
    pointer will look for it. Nothing else in the rail is rendered while
@@ -459,13 +446,9 @@ window.__ModuleLoader__.load({
      both ends and lines up with the handle's own position. */
   top: 50%;
   transform: translateY(-50%);
-  height: min(560px, calc(100vh - 2 * var(--hub-top-inset)));
+  height: min(560px, calc(100vh - 2 * var(--hub-edge-clearance)));
 }
-.hub-root[data-expanded="true"][data-edge="top"],
 .hub-root[data-expanded="true"][data-edge="bottom"] { height: min(560px, 74vh); }
-/* The top rail starts below the window chrome, so its height is measured from
-   there: the panel must still end inside the viewport, not run off the bottom. */
-.hub-root[data-expanded="true"][data-edge="top"] { height: min(560px, calc(74vh - var(--hub-top-inset))); }
 
 /* --------------------------------------------------------------------------
    The handle. It is the panel's only affordance and what the user sees for
@@ -502,11 +485,9 @@ window.__ModuleLoader__.load({
 }
 .hub-root[data-edge="left"] .hub-handle::before,
 .hub-root[data-edge="right"] .hub-handle::before { width: 2px; height: 56px; }
-.hub-root[data-edge="top"] .hub-handle,
 .hub-root[data-edge="bottom"] .hub-handle {
   height: var(--hub-handle-thickness); width: 176px; align-self: center;
 }
-.hub-root[data-edge="top"] .hub-handle::before,
 .hub-root[data-edge="bottom"] .hub-handle::before { width: 56px; height: 2px; }
 
 .hub-root[data-edge="left"] .hub-handle {
@@ -516,10 +497,6 @@ window.__ModuleLoader__.load({
 .hub-root[data-edge="right"] .hub-handle {
   border-top: 1px solid var(--hub-line-strong); border-bottom: 1px solid var(--hub-line-strong);
   border-top-left-radius: 7px; border-bottom-left-radius: 7px;
-}
-.hub-root[data-edge="top"] .hub-handle {
-  border-left: 1px solid var(--hub-line-strong); border-right: 1px solid var(--hub-line-strong);
-  border-bottom-left-radius: 7px; border-bottom-right-radius: 7px;
 }
 .hub-root[data-edge="bottom"] .hub-handle {
   border-left: 1px solid var(--hub-line-strong); border-right: 1px solid var(--hub-line-strong);
@@ -536,21 +513,25 @@ window.__ModuleLoader__.load({
   width: var(--hub-handle-open); flex: 0 0 auto;
   border-top: none; border-bottom: none;
 }
-.hub-root[data-expanded="true"][data-edge="top"] .hub-handle,
 .hub-root[data-expanded="true"][data-edge="bottom"] .hub-handle {
   position: absolute; left: 0; right: 0; width: auto; align-self: stretch;
   height: var(--hub-handle-open); flex: 0 0 auto;
   border-left: none; border-right: none;
 }
+/* The grip is absolutely positioned, so where it sits across the rail is its
+   static position — which a row-reverse container resolves differently from a
+   plain one, and browsers disagree about the edges. Pin it to the docked side
+   outright and let the surface take the whole box instead. */
+.hub-root[data-expanded="true"][data-edge="left"] .hub-handle { left: 0; right: auto; }
+.hub-root[data-expanded="true"][data-edge="right"] .hub-handle { right: 0; left: auto; }
+.hub-root[data-expanded="true"] .hub-surface { width: 100%; height: 100%; }
 /* The rail's inner edge is the one line that says "this strip is a control",
    so it is a step stronger than the panel's own hairline. */
 .hub-root[data-expanded="true"][data-edge="left"] .hub-handle { border-right: 1px solid var(--dsw-alias-border-l3); }
 .hub-root[data-expanded="true"][data-edge="right"] .hub-handle { border-left: 1px solid var(--dsw-alias-border-l3); }
-.hub-root[data-expanded="true"][data-edge="top"] .hub-handle { border-bottom: 1px solid var(--dsw-alias-border-l3); }
 .hub-root[data-expanded="true"][data-edge="bottom"] .hub-handle { border-top: 1px solid var(--dsw-alias-border-l3); }
 .hub-root[data-edge="left"] .hub-handle:hover, .hub-root[data-edge="left"] .hub-handle:focus-visible { width: var(--hub-handle-open); }
 .hub-root[data-edge="right"] .hub-handle:hover, .hub-root[data-edge="right"] .hub-handle:focus-visible { width: var(--hub-handle-open); }
-.hub-root[data-edge="top"] .hub-handle:hover, .hub-root[data-edge="top"] .hub-handle:focus-visible { height: var(--hub-handle-open); }
 .hub-root[data-edge="bottom"] .hub-handle:hover, .hub-root[data-edge="bottom"] .hub-handle:focus-visible { height: var(--hub-handle-open); }
 .hub-handle:hover::before, .hub-handle:focus-visible::before { opacity: 1; }
 .hub-handle:hover, .hub-handle:focus-visible {
@@ -595,11 +576,10 @@ window.__ModuleLoader__.load({
 }
 .hub-root[data-edge="left"] .hub-surface { border-left: none; border-radius: 0 12px 12px 0; }
 .hub-root[data-edge="right"] .hub-surface { border-right: none; border-radius: 12px 0 0 12px; }
-.hub-root[data-edge="top"] .hub-surface, .hub-root[data-edge="bottom"] .hub-surface {
+.hub-root[data-edge="bottom"] .hub-surface {
   flex: 1 1 auto; height: calc(100% - var(--hub-handle-open)); width: 100%;
   --hub-origin: center bottom;
 }
-.hub-root[data-edge="top"] .hub-surface { border-top: none; border-radius: 0 0 12px 12px; }
 .hub-root[data-edge="bottom"] .hub-surface { border-bottom: none; border-radius: 12px 12px 0 0; }
 
 @keyframes hubPanelIn {
@@ -809,9 +789,15 @@ window.__ModuleLoader__.load({
   width: 100%; text-align: left;
   padding: 8px 10px 8px 12px;
   border: 1px solid var(--hub-line); border-radius: 8px;
-  background: transparent; color: var(--hub-ink);
+  background: var(--dsw-alias-bg-layer-2); color: var(--hub-ink);
   font: inherit; cursor: pointer;
-  transition: background var(--hub-fast) ease, border-color var(--hub-fast) ease;
+  /* The resting halo is an empty one rather than none, so it can be tweened:
+     none and a shadow list do not interpolate. */
+  box-shadow: 0 0 0 0 transparent, 0 0 0 0 transparent;
+  transition:
+    background var(--hub-fast) ease,
+    border-color var(--hub-fast) ease,
+    box-shadow var(--hub-mid) var(--hub-ease);
 }
 .hub-card::before, .hub-row::before {
   content: '';
@@ -820,9 +806,17 @@ window.__ModuleLoader__.load({
   transform: scaleY(0); transform-origin: top;
   transition: transform var(--hub-mid) var(--hub-ease);
 }
-.hub-card:hover, .hub-row:hover {
+/* Hover is three replies to one pointer. The fill and the bar say "this one",
+   the halo says "here" — a brand-tinted shadow, not a darker border, because a
+   card has no fill of its own for a fill to read against. Keyboard focus gets
+   the same two, so the affordance is not mouse-only. */
+.hub-card:hover, .hub-row:hover,
+.hub-card:focus-visible, .hub-row:focus-visible {
   background: var(--dsw-alias-interactive-bg-hover);
   border-color: var(--hub-line-strong);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--hub-accent) 26%, transparent),
+    0 6px 20px -8px color-mix(in srgb, var(--hub-accent) 38%, transparent);
 }
 .hub-card:hover::before, .hub-row:hover::before { transform: scaleY(1); }
 .hub-card[data-done="true"] .hub-item-name { color: var(--hub-ink-3); text-decoration: line-through; }
@@ -1311,10 +1305,18 @@ window.__ModuleLoader__.load({
     const KIND_ICON = { todo: 'todo', note: 'note', prompt: 'prompt' }
     const KIND_LABEL_KEY = { todo: 'tab.todo', note: 'tab.note', prompt: 'tab.prompt' }
 
-    /** Dock edges, in the order the menu offers them. */
-    const EDGES = ['left', 'right', 'top', 'bottom']
-    const EDGE_ICON = { left: 'dockLeft', right: 'dockRight', top: 'dockTop', bottom: 'dockBottom' }
-    const EDGE_LABEL_KEY = { left: 'dock.left', right: 'dock.right', top: 'dock.top', bottom: 'dock.bottom' }
+    /**
+     * Dock edges, in the order the menu offers them.
+     *
+     * No top edge. The shell's own header sits at the top of the window, and a
+     * rail there either lands under its drag region — where the pointer never
+     * reaches it — or, cleared of it, sits on the conversation's own title row.
+     * Both failures are silent and both cost the edge more than it is worth, so
+     * the panel docks to the three sides that have no chrome of their own.
+     */
+    const EDGES = ['left', 'right', 'bottom']
+    const EDGE_ICON = { left: 'dockLeft', right: 'dockRight', bottom: 'dockBottom' }
+    const EDGE_LABEL_KEY = { left: 'dock.left', right: 'dock.right', bottom: 'dock.bottom' }
 
     /** Only these two views exist; both are persisted. */
     const VIEWS = ['grid', 'list']
@@ -2807,7 +2809,7 @@ window.__ModuleLoader__.load({
                 }),
                 IconButton({
                   key: 'dock',
-                  icon: 'dock' + (ui.edge === 'left' ? 'Left' : ui.edge === 'right' ? 'Right' : ui.edge === 'top' ? 'Top' : 'Bottom'),
+                  icon: 'dock' + (ui.edge === 'left' ? 'Left' : ui.edge === 'right' ? 'Right' : 'Bottom'),
                   label: translate('action.dock'),
                   on: menu === 'dock',
                   onClick: () => setMenu(current => (current === 'dock' ? 'none' : 'dock')),
