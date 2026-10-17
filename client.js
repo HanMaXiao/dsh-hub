@@ -141,6 +141,7 @@ window.__ModuleLoader__.load({
       'state.empty': '还没有条目',
       'state.emptySearch': '没有匹配的条目',
       'state.untitled': '未命名',
+      'state.contentOptional': '可留空：标题已经说清楚时',
       'state.broken': 'Hub 桥不可用',
       'state.broken.hint': '这个组合里没有 Hub Remote，面板拿不到数据。',
       'state.failed': '操作失败',
@@ -230,6 +231,7 @@ window.__ModuleLoader__.load({
       'state.empty': 'No entries yet',
       'state.emptySearch': 'No matching entries',
       'state.untitled': 'Untitled',
+      'state.contentOptional': 'Optional — leave blank when the title says it all',
       'state.broken': 'Hub bridge unavailable',
       'state.broken.hint': 'This composition has no Hub Remote, so the panel cannot read data.',
       'state.failed': 'The operation failed',
@@ -1061,6 +1063,7 @@ window.__ModuleLoader__.load({
 .hub-input:focus, .hub-textarea:focus {
   outline: none; border-color: var(--dsw-alias-state-business-primary);
 }
+.hub-input::placeholder, .hub-textarea::placeholder { color: var(--hub-ink-3); }
 .hub-textarea { min-height: 88px; line-height: 1.55; resize: vertical; }
 /* The native file control is the one place the platform's chrome would show
    through, so only its button is redrawn — the input itself stays the real
@@ -2255,7 +2258,12 @@ window.__ModuleLoader__.load({
           h('span', { key: 'n', className: 'hub-item-name' }, item.name),
           DoneToggle({ item, onToggle: props.onToggle }),
         ]),
-        h('div', { key: 't', className: 'hub-item-text', 'data-lines': '3' }, item.content),
+        // Content is optional (DESIGN §5), so an item whose title says it all
+        // carries none: the box is not drawn at all rather than drawn empty,
+        // which would leave a clamped gap between the name and the foot.
+        item.content === ''
+          ? null
+          : h('div', { key: 't', className: 'hub-item-text', 'data-lines': '3' }, item.content),
         // One foot rather than two loose rows: the tags and the size share a
         // rule, so the card reads as a unit instead of a stack of facts.
         h('div', { key: 'f', className: 'hub-card-foot' }, [
@@ -2290,7 +2298,9 @@ window.__ModuleLoader__.load({
           h(Icon, { name: item.done ? 'done' : KIND_ICON[item.kind], size: 15 })),
         h('span', { key: 'm', className: 'hub-row-main' }, [
           h('span', { key: 'n', className: 'hub-item-name' }, item.name),
-          h('span', { key: 't', className: 'hub-item-text' }, item.content),
+          item.content === ''
+            ? null
+            : h('span', { key: 't', className: 'hub-item-text' }, item.content),
           h('span', { key: 'c', className: 'hub-item-meta' }, ItemChips({ item, withState: false })),
         ]),
         h('span', { key: 's', className: 'hub-card-size' }, formatSize(item.size)),
@@ -2457,7 +2467,11 @@ window.__ModuleLoader__.load({
       const isTodo = kind === 'todo'
       const contentKey = isTodo ? 'field.description' : 'field.text'
       const contentValue = isTodo ? draft.description : draft.text
-      const canSubmit = String(contentValue ?? '').trim() !== ''
+      // The title summarises the content, so either one is enough to name the
+      // item and either may be left blank (DESIGN §5). What is not allowed is
+      // both: an entry with no words in it lists as a blank row and opens as an
+      // empty dialog, and the Host refuses it anyway (`requireSomeContent`).
+      const canSubmit = [draft.title, contentValue].some(value => String(value ?? '').trim() !== '')
 
       return h(Modal, {
         // The same form serves both, so the title is what tells them apart: an
@@ -2494,6 +2508,7 @@ window.__ModuleLoader__.load({
           h('textarea', {
             className: 'hub-textarea',
             value: contentValue ?? '',
+            placeholder: translate('state.contentOptional'),
             onChange: event => patch(isTodo ? { description: event.target.value } : { text: event.target.value }),
           })),
         isTodo
@@ -2594,7 +2609,7 @@ window.__ModuleLoader__.load({
           h('span', { key: 'u' }, `${translate('meta.updated')} ${formatTime(item.updatedAt)}`),
         ]),
         h('div', { key: 'c', className: 'hub-item-meta' }, ItemChips({ item })),
-        h('div', { key: 'x', className: 'hub-detail-text' }, item.content),
+        item.content === '' ? null : h('div', { key: 'x', className: 'hub-detail-text' }, item.content),
         item.note === '' ? null : h('div', { key: 'nt', className: 'hub-detail-note' }, item.note),
         item.files.length === 0 ? null : h('div', { key: 'f', className: 'hub-file-list' },
           item.files.map((file, index) => file.mime.startsWith('image/')
@@ -3023,7 +3038,12 @@ window.__ModuleLoader__.load({
       }, [say, load, setRegionOpen])
 
       const copyItem = useCallback(async (item) => {
-        const copied = await copyText(item.content)
+        // A title-only item has no body to copy, and an empty string on the
+        // clipboard reads as a success that copied nothing. The display name is
+        // what such an item has to give, and it is derived, so this is the
+        // Client's call rather than another field for the Host to own.
+        const text = item.content === '' ? item.name : item.content
+        const copied = await copyText(text)
         say(copied ? translate('action.copied') : translate('action.copyFailed'), copied ? 'ok' : 'error')
       }, [say])
 

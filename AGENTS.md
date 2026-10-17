@@ -182,6 +182,12 @@ concrete reason; drop none of them for style.
   fallback belongs to the same half that renders it. `title` is additive — a
   document written before it existed reads as untitled, so `SCHEMA_VERSION` does
   not move when it is added.
+- **Title and content are each optional, and one of them must be there.** The
+  title summarises the content, so `description` / `text` may be blank and a
+  patch may clear either (DESIGN §5). Both blank is the one state that is
+  refused, on the Host's side, and the Client mirrors it as the confirm button
+  staying disabled — the two must agree, or the panel lets through a save the
+  Host answers with `hub/invalid-item`.
 - **A dropped field is a Host that is behind, and it must be named.** The Host
   discards a field it does not recognise, by design (`lib/model.js`), so version
   skew loses data with no error at all. The Client owns the §5 key list it writes

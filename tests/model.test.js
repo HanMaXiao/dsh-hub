@@ -143,9 +143,32 @@ test('every documented priority is accepted', () => {
   }
 })
 
-test('a blank description is rejected rather than stored as an empty TODO', () => {
-  const message = rejects(() => normalizeItem({ kind: 'todo', description: '   ' }, {}, AT), 'description')
-  assert.match(message, /description is required and cannot be blank/)
+test('a TODO whose title names it needs no content at all', () => {
+  // The title summarises the content, so a short task is a title on its own.
+  // What is refused is the pair being blank, not either one.
+  const item = normalizeItem({ kind: 'todo', title: 'ship the panel' }, {}, AT)
+  assert.equal(item.title, 'ship the panel')
+  assert.equal(item.description, '')
+})
+
+test('a NOTE and a PROMPT are the same: either field alone is an item', () => {
+  assert.equal(normalizeItem({ kind: 'note', title: 'a thought' }, {}, AT).text, '')
+  assert.equal(normalizeItem({ kind: 'prompt', title: 'draw a cat' }, {}, AT).text, '')
+})
+
+test('an item with neither a title nor content is rejected naming both', () => {
+  const todo = rejects(() => normalizeItem({ kind: 'todo', description: '   ' }, {}, AT), 'title')
+  assert.match(todo, /title and description are both blank/)
+  const note = rejects(() => normalizeItem({ kind: 'note', text: '  ' }, {}, AT), 'title')
+  assert.match(note, /title and text are both blank/)
+})
+
+test('content is still trimmed when it is there', () => {
+  assert.equal(normalizeItem({ kind: 'note', text: '  a thought  ' }, {}, AT).text, 'a thought')
+})
+
+test('content must be a string when it is present', () => {
+  rejects(() => normalizeItem({ kind: 'note', text: 42 }, {}, AT), 'text')
 })
 
 test('done must be a boolean', () => {
@@ -263,8 +286,16 @@ test('a patch is validated as strictly as a create', () => {
   rejects(() => applyPatch(stored, { priority: 'later' }, {}, AT), 'priority')
 })
 
-test('a patch that removes the only required field is rejected', () => {
-  rejects(() => applyPatch(stored, { description: '' }, {}, AT), 'description')
+test('a patch may clear the content of an item its title names', () => {
+  const titled = normalizeItem({ ...todo, title: 'ship the panel' }, {}, AT)
+  assert.equal(applyPatch(titled, { description: '' }, {}, AT).description, '')
+})
+
+test('a patch that would leave the item with nothing in it is rejected', () => {
+  // `stored` has no title, so clearing its only content is the one patch that
+  // leaves nothing to name the item by.
+  const message = rejects(() => applyPatch(stored, { description: '' }, {}, AT), 'title')
+  assert.match(message, /both blank/)
 })
 
 test('a non-object patch is rejected', () => {

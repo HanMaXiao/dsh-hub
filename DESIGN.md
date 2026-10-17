@@ -161,6 +161,17 @@ in the Client (see §6): it is the title when there is one, otherwise the first
 line of the content. So an untitled item still reads well, and the panel never
 forces a title on anyone.
 
+**Content is optional, and the title is what carries it.** `description` and
+`text` are trimmed like the title and an absent or blank one is stored as `''`:
+the title *summarises* the content, so a short task is a title on its own and
+forcing a body onto it would be inventing a second way of saying the same
+thing. Both fields are content, so a patch may set or clear either. **One of the
+two has to be non-blank** — an item with neither names nothing, lists as a blank
+row and opens as an empty dialog — so that is the third rejection that fires on
+a well-formed-looking payload, after an unknown `kind` and an unknown
+`priority`. It is enforced on the read path too, which costs nothing: every
+stored item passed the same rule that admitted it.
+
 `create` **carries `kind` explicitly** — the Client always knows which tab the
 draft came from, so there is nothing for the Host to infer, and a Host-side
 guess would have to be a heuristic over field shapes. The Host fills `id`,
@@ -168,9 +179,10 @@ guess would have to be a heuristic over field shapes. The Host fills `id`,
 
 The Host validates every write and rejects unknown `kind` or `priority` values
 with an actionable message naming the offending field. Fields outside this
-model are dropped rather than rejected; `kind` and `priority` out of range are
-the two rejections that fire on a well-formed-looking payload, because neither
-has a defensible default.
+model are dropped rather than rejected; those two, plus an item whose title and
+content are both blank, are the three rejections that fire on a
+well-formed-looking payload, because none of the three has a defensible
+default.
 
 ## 6. Sort — from 图一
 
