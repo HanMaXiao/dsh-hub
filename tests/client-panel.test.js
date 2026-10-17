@@ -388,6 +388,99 @@ test('an untitled item still reads as its first line of content', async () => {
   assert.equal(textOf(panel.byClass('hub-item-name')), '写一份发布检查清单')
 })
 
+test('a title alone is enough to create an entry', async () => {
+  // The title summarises the content, so a short TODO is the title on its own
+  // (DESIGN §5). The real Host store is behind this panel, so a create that the
+  // Host would refuse would throw here rather than pass silently.
+  const panel = await mountPanel()
+  panel.expand()
+  await panel.settle()
+  panel.click(panel.byLabel('action.create'))
+  await panel.settle()
+
+  fieldByLabel(panel, 'field.title').props.onChange({ target: { value: '买菜' } })
+  await panel.settle()
+
+  assert.equal(panel.byText('action.confirm').props.disabled, false,
+    'a title on its own must be enough to confirm')
+  panel.click(panel.byText('action.confirm'))
+  await panel.settle()
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  assert.equal(stored()[0].title, '买菜')
+  assert.equal(stored()[0].description, '', 'an omitted content is stored empty, not invented')
+  assert.equal(textOf(panel.byClass('hub-item-name')), '买菜')
+  assert.equal(panel.byClass('hub-item-text'), undefined,
+    'a card with no content draws no content box rather than an empty one')
+})
+
+test('confirm waits for a title or content, because neither alone says nothing', async () => {
+  const panel = await mountPanel()
+  panel.expand()
+  await panel.settle()
+  panel.click(panel.byLabel('action.create'))
+  await panel.settle()
+
+  assert.equal(panel.byText('action.confirm').props.disabled, true, 'an empty form cannot be saved')
+  panel.byClass('hub-textarea').props.onChange({ target: { value: '一条笔记' } })
+  await panel.settle()
+  assert.equal(panel.byText('action.confirm').props.disabled, false,
+    'content alone still names the entry')
+})
+
+test('editing an entry can clear its content while the title stays', async () => {
+  const panel = await mountPanel()
+  await withAnItem(panel, '发布检查清单')
+  panel.click(panel.byClass('hub-card') ?? panel.byClass('hub-row'))
+  await panel.settle()
+  panel.click(panel.byText('action.edit'))
+  await panel.settle()
+
+  panel.byClass('hub-textarea').props.onChange({ target: { value: '' } })
+  await panel.settle()
+  assert.equal(panel.byText('action.confirm').props.disabled, false,
+    'clearing the content of a titled entry is an edit, not a delete')
+  panel.click(panel.byText('action.confirm'))
+  await panel.settle()
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  assert.equal(stored()[0].description, '')
+  assert.equal(textOf(panel.byClass('hub-item-name')), '发布检查清单')
+})
+
+test('copying a title-only entry copies its name rather than nothing', async () => {
+  // An empty string on the clipboard reads as a copy that succeeded and copied
+  // nothing, so an entry with no content gives the one thing it does have.
+  const written = []
+  const navigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
+  Object.defineProperty(globalThis, 'navigator', {
+    value: { clipboard: { writeText: async text => { written.push(text) } } },
+    configurable: true,
+    writable: true,
+  })
+  try {
+    const panel = await mountPanel()
+    await withAnItem(panel, '发布检查清单')
+    panel.click(panel.byClass('hub-card') ?? panel.byClass('hub-row'))
+    await panel.settle()
+    panel.click(panel.byText('action.edit'))
+    await panel.settle()
+    panel.byClass('hub-textarea').props.onChange({ target: { value: '' } })
+    await panel.settle()
+    panel.click(panel.byText('action.confirm'))
+    await panel.settle()
+
+    panel.click(panel.byLabel('action.copy'))
+    await panel.settle()
+
+    assert.deepEqual(written, ['发布检查清单'])
+  }
+  finally {
+    if (navigator === undefined) delete globalThis.navigator
+    else Object.defineProperty(globalThis, 'navigator', navigator)
+  }
+})
+
 test('editing an item offers its own title and can change it', async () => {
   const panel = await mountPanel()
   await withAnItem(panel, '发布检查清单')
