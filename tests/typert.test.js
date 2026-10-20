@@ -120,7 +120,10 @@ test('the manifest is owned by this package and faces the Host', () => {
 
 test('the manifest describes exactly the methods the Remote marks', () => {
   assert.deepEqual(TYPERT.invocations.map(entry => entry.method), REMOTE_METHOD_NAMES)
-  assert.deepEqual(REMOTE_METHOD_NAMES, ['list', 'create', 'update', 'delete'])
+  assert.deepEqual(REMOTE_METHOD_NAMES, [
+    'list', 'create', 'update', 'delete',
+    'createStatus', 'updateStatus', 'deleteStatus',
+  ])
 })
 
 test('every invocation carries the fields validateTypertManifest requires', () => {
@@ -165,6 +168,29 @@ test('the delete is published as `delete` and reaches `remove`', () => {
   assert.ok(REMOTE_METHOD_NAMES.includes('delete'))
   assert.ok(!REMOTE_METHOD_NAMES.includes('remove'))
   assert.equal(TYPERT.invocations.find(entry => entry.method === 'delete').implementation, 'remove')
+})
+
+test('the status trio is published as createStatus, updateStatus and deleteStatus', () => {
+  // The wire vocabulary says "delete" and the service's own says "remove",
+  // exactly as the item pair does; `deleteStatus` shadows nothing on the
+  // namespace service, and `removeStatus` is what keeps the two halves parallel.
+  assert.ok(REMOTE_METHOD_NAMES.includes('createStatus'))
+  assert.ok(REMOTE_METHOD_NAMES.includes('updateStatus'))
+  assert.ok(REMOTE_METHOD_NAMES.includes('deleteStatus'))
+  assert.ok(!REMOTE_METHOD_NAMES.includes('removeStatus'))
+  assert.equal(TYPERT.invocations.find(entry => entry.method === 'deleteStatus').implementation, 'removeStatus')
+})
+
+test('the status trio carries its parameters in the wire order', () => {
+  // The gateway dispatches positionally, so a drift here hands each argument to
+  // the wrong parameter without any error at load time. The Host side of the
+  // same order is checked against the roster above.
+  const create = TYPERT.invocations.find(entry => entry.method === 'createStatus')
+  assert.deepEqual(create.parameters.map(parameter => parameter.name), ['draft'])
+  const update = TYPERT.invocations.find(entry => entry.method === 'updateStatus')
+  assert.deepEqual(update.parameters.map(parameter => parameter.name), ['id', 'patch'])
+  const remove = TYPERT.invocations.find(entry => entry.method === 'deleteStatus')
+  assert.deepEqual(remove.parameters.map(parameter => parameter.name), ['id'])
 })
 
 test('wires are unique inside an invocation and carry a json source', () => {

@@ -30,7 +30,7 @@ dsh-hub/
 ├── remote.js         HubRemote — the Client's only data path
 ├── typert.js         Typert manifest mirroring remote.js exactly
 ├── client.js         all panel UI and interaction (one file, not splittable)
-├── lib/              Host pure logic: id generation, item validation, atomic JSON storage
+├── lib/              Host pure logic: id generation, item validation, status definitions, atomic JSON storage
 ├── tests/            node --test coverage for lib/, the Host entry, the panel and the client bridge — repo-only, not in `files`
 └── .agents/          Agent workflows and notes
 ```
@@ -200,19 +200,48 @@ concrete reason; drop none of them for style.
   **deliberately absent** — no model field backs it; do not render an empty
   entry for it. Obsidian's `标题` is **not** in the menu either, and now for the
   opposite reason: `标题` is the editable field and `名称` is derived from it, so
-  a menu entry for each would be two names for one column. `完成状态` is gone for
-  a third reason: completion is the frame the TODO list is built in
-  ([DESIGN.md §6.1](DESIGN.md)), so a menu that arranges it would put a group
-  header inside a region that already is one completion state. Every comparator
+  a menu entry for each would be two names for one column. `完成状态` is not
+  offered either: the panel's own completion enum is the frame the TODO list is
+  built in ([DESIGN.md §6.1](DESIGN.md)) — every status is a region of its own
+  — and a status is changed on the item itself, so a menu that arranges it
+  would put a status header inside a region that is already named by a status.
+  Every comparator
   ends with `createdAt` then `id` ascending, so equal keys never reorder between
   renders.
-- **`completedAt` is the Host's, and is derived from `done`.** The finished
-  region is ordered by it, which makes it a durable fact and puts it on the Host
-  side of the ownership table beside `createdAt`. It is stamped when a TODO is
-  finished and cleared when one is reopened, and is **never** accepted from a
-  patch: a Client-supplied timestamp is a second source for a fact the store
-  owns, and restamping a finished task on every edit would make it jump the
-  finished list. Editing a finished TODO must leave it where it is.
+- **`completedAt` is the Host's, and is derived from the status.** A terminal
+  status's region is ordered by it, which makes it a durable fact and puts it on
+  the Host side of the ownership table beside `createdAt`. It is stamped when a
+  TODO enters a **terminal** status (§5.1) and cleared when it leaves one, and
+  it is **never** accepted from a patch: a Client-supplied timestamp is a
+  second source for a fact the store owns, and restamping a finished task on
+  every edit would make it jump the finished list. Editing a finished TODO must
+  leave it where it is. A status whose terminal flag is flipped re-stamps the
+  items carrying it, so retiring a definition as "finished" does not leave its
+  items in the finished log forever.
+- **`status` replaced `done`, and there is one completion fact.** A TODO stores
+  the id of one status definition; "finished or not" is answered by that
+  definition's terminal flag, not by a second field that could disagree with
+  it. `done` is read as a legacy alias — an item written before `status`
+  existed, and a patch from a Client older than this build — and dropped from
+  the stored shape. Never reintroduce a boolean beside it.
+- **The regions are the statuses.** A TODO list is one collapsible region per
+  status definition, in the order the user curates them — not the two
+  hard-coded halves a boolean could express, which cannot tell "in progress"
+  from "on hold". The terminal flag no longer decides *which* region an item
+  is in; it decides what a region *orders* by. The fold state is therefore
+  remembered per status id, in a map rather than a pair of fixed keys, and the
+  two keys the old layout wrote are dropped from the persisted blob rather than
+  left describing a panel that is not this one. The persisted preferences
+  therefore carry an edge, a view and that map — item bytes and the status
+  list belong to the Host, and a second copy of either in the browser would go
+  stale exactly when it hurts.
+- **The status definitions are the Host's, like the items.** They are durable
+  bytes in the same document, so their CRUD goes over the same Remote
+  (`createStatus` / `updateStatus` / `deleteStatus`). A Client that kept its
+  own list would show a status the store does not have, and would lose it on
+  the next reload. The last definition cannot be deleted, and neither can one
+  that items still carry: moving those items silently would be a data change
+  the user did not ask for.
 - **An empty `catch` names the error and why** and keeps its `try` to one
   statement.
 - **Comments stay local.** Do not restate code, expand unrelated comments or

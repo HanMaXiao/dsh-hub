@@ -147,15 +147,21 @@ let legacyHost = false
 /** The items currently on disk, oldest first. */
 function stored() { return store === null ? [] : store.list() }
 
+/** The status definitions currently on disk, in the order the panel offers them. */
+function storedStatuses() { return store === null ? [] : store.statuses() }
+
 /** Strip the fields a pre-`title` Host would never emit. */
 function asLegacy(items) {
-  return items.map(({ title, ...rest }) => rest)
+  return items.map(({ title, status, ...rest }) => rest)
 }
 
 const hub = {
   async list() {
     const items = store.list()
-    return { ok: true, value: { version: store.document.version, items: legacyHost ? asLegacy(items) : items } }
+    const value = { version: store.document.version, items: legacyHost ? asLegacy(items) : items }
+    // A Host that predates the enum sends no `statuses` key at all.
+    if (!legacyHost) value.statuses = store.statuses()
+    return { ok: true, value }
   },
   async create(draft) {
     const value = store.create(legacyHost ? asLegacy([draft])[0] : draft)
@@ -166,6 +172,21 @@ const hub = {
     return { ok: true, value }
   },
   async delete(id) { return { ok: true, value: store.remove(id) } },
+  // The status trio answers with the same envelope every other method does: a
+  // refusal is `{ ok: false, error }`, not a throw, so the panel reads it the
+  // way the gateway delivers it.
+  async createStatus(draft) {
+    try { return { ok: true, value: store.createStatus(draft, new Date()) } }
+    catch (error) { return { ok: false, error } }
+  },
+  async updateStatus(id, patch) {
+    try { return { ok: true, value: store.updateStatus(id, patch, new Date()) } }
+    catch (error) { return { ok: false, error } }
+  },
+  async deleteStatus(id) {
+    try { return { ok: true, value: store.removeStatus(id) } }
+    catch (error) { return { ok: false, error } }
+  },
 }
 const namespaces = new Map()
 const remote = {
@@ -248,17 +269,17 @@ async function mountPanel() {
  * The control's own handler runs first, then the click bubbles to each ancestor
  * in turn unless something stopped it. That half is the point: this harness has
  * no event system, so a control nested inside a button that forgets to stop its
- * click would look exactly like one that remembers. The other half is the
- * checkbox: the browser ticks the box as part of the click and React reports it
- * through `onChange` once the click has finished propagating, so ticking one has
- * to go through the same call as pressing any other control.
+ * click would look exactly like one that remembers.
+ *
+ * `currentTarget` is the control itself, as the DOM reports it — the panel
+ * measures it to place the status popover at the badge that opened it.
  *
  * @param node The control being clicked.
  * @param ancestors Its ancestors, nearest first.
  * @returns The event, so a test can assert whether the click was stopped.
  */
 function click(node, ...ancestors) {
-  const event = { stopped: false, stopPropagation() { this.stopped = true } }
+  const event = { stopped: false, currentTarget: node, stopPropagation() { this.stopped = true } }
   node?.props.onClick?.(event)
   for (const ancestor of ancestors) {
     if (event.stopped) break
@@ -268,6 +289,59 @@ function click(node, ...ancestors) {
     node.props.onChange?.({ target: { checked: !node.props.checked } })
   }
   return event
+}
+
+/**
+ * The boxes the harness hands to the panel.
+ *
+ * The panel measures a badge against the surface to place the status popover,
+ * and this harness lays nothing out — so a node answers with the rect a test
+ * seeded for its class, and with an empty one otherwise.
+ */
+const rects = new Map()
+
+/**
+ * A rect, with every field a `getBoundingClientRect` returns.
+ * @param {number} left The left edge.
+ * @param {number} top The top edge.
+ * @param {number} width The width.
+ * @param {number} height The height.
+ * @returns The rect.
+ */
+function rect(left, top, width, height) {
+  return { left, top, width, height, right: left + width, bottom: top + height }
+}
+
+/**
+ * A stand-in for the browser's preference store.
+ *
+ * The panel persists its presentation choices in `localStorage`, which this
+ * harness does not have: the panel reads it once when the bundle loads and
+ * writes to it afterwards, so a test that wants to see what was persisted
+ * installs this and reads the blob back.
+ *
+ * @returns The store's `read` and the `restore` that puts the platform back.
+ */
+function fakeStorage() {
+  const values = new Map()
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'localStorage')
+  Object.defineProperty(globalThis, 'localStorage', {
+    value: {
+      getItem: key => (values.has(key) ? values.get(key) : null),
+      setItem: (key, value) => { values.set(key, String(value)) },
+      removeItem: key => { values.delete(key) },
+      clear: () => { values.clear() },
+    },
+    configurable: true,
+    writable: true,
+  })
+  return {
+    read: key => (values.has(key) ? values.get(key) : null),
+    restore() {
+      if (previous === undefined) delete globalThis.localStorage
+      else Object.defineProperty(globalThis, 'localStorage', previous)
+    },
+  }
 }
 
 /** Render the panel and expand every nested function component, as React does. */
@@ -298,7 +372,14 @@ function expand(node, depth = 0) {
     finally { current = previous }
     if (element === null || element === undefined) return element
   }
-  return { ...element, children: (element.children ?? []).map(child => expand(child, depth + 1)) }
+  const expanded = { ...element, children: (element.children ?? []).map(child => expand(child, depth + 1)) }
+  // The panel measures boxes — the status popover is placed at the badge that
+  // opened it — and this harness has no layout, so a node answers with the
+  // rect a test seeded for its class.
+  expanded.getBoundingClientRect = () => rects.get(element.props?.className) ?? rect(0, 0, 0, 0)
+  // A ref has to reach the node, or the panel's own surface is never measured.
+  if (element.props?.ref) element.props.ref.current = expanded
+  return expanded
 }
 
 /** The panel currently rendering, for `expand`'s nested component calls. */
@@ -559,6 +640,46 @@ test('every menu and dialog opens without a render error', async () => {
   assert.ok(panel.byClass('hub-modal'), 'the delete confirmation must open')
 })
 
+test('the sort readout in the meta row opens the sort menu', async () => {
+  // The chevron beside the field name reads as a dropdown, so it has to be one:
+  // a dropdown that opens nothing is worse than no dropdown at all.
+  const panel = await mountPanel()
+  await withAnItem(panel)
+
+  const readout = panel.byClass('hub-meta-sort')
+  assert.equal(readout.type, 'button', 'the sort readout must be a control, not a label')
+  assert.equal(readout.props['aria-haspopup'], 'menu')
+
+  panel.click(readout)
+  await panel.settle()
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  assert.ok(panel.byClass('hub-menu'), 'clicking the sort readout must open the sort menu')
+  assert.equal(panel.byClass('hub-meta-sort').props['data-on'], 'true')
+
+  panel.click(panel.byClass('hub-meta-sort'))
+  await panel.settle()
+  assert.equal(panel.byClass('hub-menu'), undefined, 'clicking it again must close it')
+})
+
+test('the toolbar sort icon and the meta readout are one menu', async () => {
+  // Both drive the same `menu` state, so opening one marks both as open and
+  // neither can be left showing a menu the other has already closed.
+  const panel = await mountPanel()
+  await withAnItem(panel)
+
+  panel.click(panel.byLabel('action.sort'))
+  await panel.settle()
+  assert.equal(panel.byLabel('action.sort').props['data-on'], 'true')
+  assert.equal(panel.byClass('hub-meta-sort').props['data-on'], 'true',
+    'the readout must show the menu the toolbar opened')
+
+  panel.click(panel.byClass('hub-meta-sort'))
+  await panel.settle()
+  assert.equal(panel.byClass('hub-menu'), undefined)
+  assert.equal(panel.byLabel('action.sort').props['data-on'], 'false',
+    'closing it from the readout must unmark the toolbar icon too')
+})
+
 test('a modal holds the panel open, and the handle brings it back', async () => {
   const panel = await mountPanel()
   await withAnItem(panel)
@@ -579,25 +700,26 @@ test('a modal holds the panel open, and the handle brings it back', async () => 
   assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
 })
 
-test('a TODO list is framed by completion, and a new task opens the unfinished half', async () => {
+test('a TODO list is framed by status, and a new task opens the region it was filed under', async () => {
   // The defect this replaces: one list, sorted by whatever was picked, where an
   // unfinished task sits among finished ones and neither half can be seen whole.
+  // The frame is finer now — every status is a region of its own.
   const panel = await mountPanel()
   panel.expand()
   await panel.settle()
   assert.equal(panel.byClass('hub-regions'), undefined,
-    'an empty store shows the empty state, not two empty headers')
+    'an empty store shows the empty state, not a header for every status')
 
   await withAnItem(panel, '写一份发布检查清单')
 
   const regions = panel.allByClass('hub-region')
-  assert.equal(regions.length, 1, 'only the unfinished half has anything in it yet')
+  assert.equal(regions.length, 1, 'only the status the task was filed under has anything in it')
   assert.equal(regions[0].props['data-open'], 'true',
     'a new task must not land in a folded region the moment the dialog closes')
-  assert.ok(regionLabelled(panel, 'group.done.no') !== undefined,
-    'the header names the unfinished half')
-  assert.ok(regionLabelled(panel, 'group.done.yes') === undefined,
-    'an empty finished half is not rendered at all')
+  assert.ok(regionNamed(panel, 'status.pending') !== undefined,
+    'the header names the status the task was filed under')
+  assert.ok(regionNamed(panel, 'status.doing') === undefined,
+    'a status with nothing in it is not rendered at all')
   assert.match(textOf(regions[0]), /1 count\.unit/, 'a folded header still counts')
 })
 
@@ -622,7 +744,7 @@ test('a region folds to its count and unfolds again', async () => {
     'a folded region keeps its items, so unfolding does not re-fetch or re-order them')
 })
 
-test('the unfinished half follows the sort menu; the finished one follows completion', async () => {
+test('a region that is not a log follows the sort menu; a terminal one follows completion', async () => {
   const panel = await mountPanel()
   // Latin names, deliberately: the name field is ordered by an Intl.Collator on
   // the runtime's locale, and CJK titles do not sort the same way everywhere —
@@ -631,48 +753,226 @@ test('the unfinished half follows the sort menu; the finished one follows comple
   await withAnItem(panel, 'zeta')
   await withAnItem(panel, 'alpha')
 
-  assert.deepEqual(namesIn(regionLabelled(panel, 'group.done.no')), ['alpha', 'zeta'],
-    'the unfinished half is sorted by the chosen field, ascending by name')
+  const open = regionNamed(panel, 'status.pending')
+  assert.ok(open !== undefined, 'both tasks start in the pending status')
+  assert.deepEqual(namesIn(open), ['alpha', 'zeta'],
+    'a region that is not a log is sorted by the chosen field, ascending by name')
 
   // Finished in name order, so completion order runs against it and the
-  // finished half can only come out right one way.
-  await completeNamed(panel, 'alpha')
-  await pause(5)
-  await completeNamed(panel, 'zeta')
+  // terminal region can only come out right one way.
+  await setStatusNamed(panel, 'alpha', 'status.done')
+  await pause(10)
+  await setStatusNamed(panel, 'zeta', 'status.done')
 
-  const finished = regionLabelled(panel, 'group.done.yes')
+  const finished = regionNamed(panel, 'status.done')
   assert.ok(finished !== undefined, 'finishing a task must create the finished region')
   assert.equal(finished.props['data-open'], 'true',
     'a task that moves has to be seen moving, not counted into a shut region')
   assert.deepEqual(namesIn(finished), ['zeta', 'alpha'],
-    'the finished half is a log: newest completion on top, whatever the menu says')
-  assert.equal(regionLabelled(panel, 'group.done.no'), undefined,
-    'nothing is left unfinished once both are finished')
+    'a terminal region is a log: newest completion on top, whatever the menu says')
+  assert.equal(regionNamed(panel, 'status.pending'), undefined,
+    'nothing is left in the pending status once both are finished')
 
   const stamps = stored().map(item => item.completedAt)
   assert.equal(stamps.length, 2, 'the Host stamps completion, not the panel')
   assert.notEqual(stamps[0], stamps[1], 'and stamps each one on its own')
 })
 
-test('reopening a task puts it back in the unfinished half, and opens it', async () => {
+test('a terminal region keeps its own order when the sort menu changes', async () => {
+  // The menu is not contradicted quietly: it is the terminal region that
+  // overrides, and a log whose newest entry is not on top is not a log.
   const panel = await mountPanel()
   await withAnItem(panel, 'alpha')
-  await completeNamed(panel, 'alpha')
+  await withAnItem(panel, 'zeta')
+  await withAnItem(panel, 'gamma')
+  await withAnItem(panel, 'delta')
+  await setStatusNamed(panel, 'gamma', 'status.doing')
+  await setStatusNamed(panel, 'delta', 'status.doing')
+  // Finished in name order, so the log's own order runs against the name order.
+  await setStatusNamed(panel, 'zeta', 'status.done')
+  await pause(10)
+  await setStatusNamed(panel, 'alpha', 'status.done')
 
-  assert.ok(regionLabelled(panel, 'group.done.yes') !== undefined)
-  const openRegion = regionLabelled(panel, 'group.done.no')
-  assert.equal(openRegion, undefined, 'an unfinished half with nothing in it is not rendered')
+  assert.deepEqual(namesIn(regionNamed(panel, 'status.doing')), ['delta', 'gamma'],
+    'a region that is not a log follows the menu')
+  assert.deepEqual(namesIn(regionNamed(panel, 'status.done')), ['alpha', 'zeta'],
+    'a log puts the newest completion on top, which is the opposite of the name order')
 
-  await completeNamed(panel, 'alpha')
+  await chooseSortDirection(panel, 'desc')
 
-  const back = regionLabelled(panel, 'group.done.no')
-  assert.ok(back !== undefined, 'reopening must bring the unfinished half back')
+  assert.deepEqual(namesIn(regionNamed(panel, 'status.doing')), ['gamma', 'delta'],
+    'the menu reaches the region that follows it')
+  assert.deepEqual(namesIn(regionNamed(panel, 'status.done')), ['alpha', 'zeta'],
+    'and does not reach the log')
+})
+
+test('moving a task out of a terminal status puts it back in the region it moved into, and opens it', async () => {
+  const panel = await mountPanel()
+  await withAnItem(panel, 'alpha')
+  await setStatusNamed(panel, 'alpha', 'status.done')
+
+  assert.ok(regionNamed(panel, 'status.done') !== undefined)
+  assert.equal(regionNamed(panel, 'status.pending'), undefined,
+    'a status with nothing in it is not rendered')
+
+  await setStatusNamed(panel, 'alpha', 'status.pending')
+
+  const back = regionNamed(panel, 'status.pending')
+  assert.ok(back !== undefined, 'reopening must bring the pending region back')
   assert.equal(back.props['data-open'], 'true', 'and open it')
   assert.deepEqual(namesIn(back), ['alpha'])
-  assert.equal(regionLabelled(panel, 'group.done.yes'), undefined,
-    'a finished half with nothing in it goes away again')
-  assert.equal(stored()[0].done, false)
+  assert.equal(regionNamed(panel, 'status.done'), undefined,
+    'a status with nothing in it goes away again')
+  assert.equal(stored()[0].status, 'pending')
   assert.equal(stored()[0].completedAt, '', 'an unfinished task carries no completion stamp')
+})
+
+test('a region opens itself when an item moves into it', async () => {
+  // A task that moves while its region is shut has moved invisibly: the count
+  // would move and nothing else would, which reads as a miscount rather than as
+  // a task changing state.
+  const panel = await mountPanel()
+  await withAnItem(panel, 'alpha')
+  await withAnItem(panel, 'beta')
+
+  panel.click(regionHead(panel, 'status.pending'))
+  await panel.settle()
+  assert.equal(regionNamed(panel, 'status.pending').props['data-open'], 'false',
+    'the region is folded once the user folds it')
+
+  await setStatusNamed(panel, 'alpha', 'status.doing')
+
+  const doing = regionNamed(panel, 'status.doing')
+  assert.ok(doing !== undefined, 'the status the item moved into has a region')
+  assert.equal(doing.props['data-open'], 'true', 'and it opens itself')
+  assert.deepEqual(namesIn(doing), ['alpha'])
+  assert.deepEqual(namesIn(regionNamed(panel, 'status.pending')), ['beta'],
+    'the region it left keeps what is left')
+  assert.equal(regionNamed(panel, 'status.pending').props['data-open'], 'false',
+    'and stays as the user left it')
+})
+
+test('a region header carries the status name and the status dot', async () => {
+  // The header and the items under it have to read as one thing, so the header
+  // wears the same mark the badge does.
+  const panel = await mountPanel()
+  await withAnItem(panel, 'alpha')
+
+  const head = regionHead(panel, 'status.pending')
+  assert.ok(head !== undefined, 'a status region draws a header')
+  assert.equal(regionLabel(panel, 'status.pending'), 'status.pending',
+    'the header is named after the status it frames')
+
+  const dot = (head.children ?? []).find(child => child.props?.className === 'hub-region-dot')
+  assert.ok(dot !== undefined, 'and it wears the status dot')
+  const mark = findNode(dot, node => node.props?.className === 'hub-status-dot')
+  assert.ok(mark !== undefined, 'the dot is the same mark the badge carries')
+  assert.equal(mark.props['data-tone'], 'neutral', 'painted in the status own tone')
+})
+
+test('the regions come in the order the user curates the statuses', async () => {
+  // The status list is the frame, so its order is the order of the regions: a
+  // list the user curates is a list whose frame they curate too.
+  const panel = await mountPanel()
+  await withAnItem(panel, 'alpha')
+  await withAnItem(panel, 'beta')
+  await setStatusNamed(panel, 'beta', 'status.doing')
+
+  assert.deepEqual(regionNames(panel), ['status.pending', 'status.doing'],
+    'the regions come in the order the status list holds them')
+  assert.equal(regionNamed(panel, 'status.failed'), undefined,
+    'a status with nothing in it is not rendered at all')
+})
+
+test('the open regions are remembered per status, and persisted as a map', async () => {
+  // The regions are the statuses, so the open state is a map keyed by status
+  // id rather than a pair of fixed keys.
+  const storage = fakeStorage()
+  try {
+    const panel = await mountPanel()
+    await withAnItem(panel, 'alpha')
+    await withAnItem(panel, 'beta')
+    await setStatusNamed(panel, 'beta', 'status.doing')
+
+    panel.click(regionHead(panel, 'status.pending'))
+    await panel.settle()
+    assert.equal(regionNamed(panel, 'status.pending').props['data-open'], 'false')
+    assert.equal(regionNamed(panel, 'status.doing').props['data-open'], 'true',
+      'folding one status must not fold another')
+
+    const blob = JSON.parse(storage.read('dsh-hub.prefs.v1'))
+    assert.deepEqual(blob.todoRegions, { doing: true },
+      'the open regions are remembered under the status ids')
+    assert.equal(blob.todoOpen, undefined, 'and the two fixed keys of the old frame are gone')
+    assert.equal(blob.todoDone, undefined)
+  }
+  finally {
+    storage.restore()
+  }
+})
+
+test('a status the user reorders takes its region with it', async () => {
+  const panel = await mountPanel()
+  await withAnItem(panel, 'alpha')
+  await withAnItem(panel, 'beta')
+  await setStatusNamed(panel, 'beta', 'status.doing')
+
+  await openManager(panel)
+  click(rowButton(managerRow(panel, 'status.doing'), 'action.moveUp'))
+  await panel.settle()
+
+  assert.deepEqual(storedStatuses().map(status => status.id).slice(0, 2), ['doing', 'pending'],
+    'the moved status takes the position it was sent to')
+  assert.deepEqual(regionNames(panel), ['status.doing', 'status.pending'],
+    'and the regions follow the list the user curates')
+})
+
+test('a status the user deletes leaves the frame it was in alone', async () => {
+  // A status that items still carry cannot be deleted, so the status being
+  // deleted always had an empty region — and an empty region is not rendered.
+  // What a deletion can be observed doing is leaving the rest of the frame
+  // exactly as it was.
+  const panel = await mountPanel()
+  await withAnItem(panel, 'alpha')
+  await withAnItem(panel, 'beta')
+  await setStatusNamed(panel, 'beta', 'status.onhold')
+  // A status nothing carries draws no region of its own, so the deletion has to
+  // leave the rest of the frame alone.
+  assert.equal(regionNamed(panel, 'status.failed'), undefined)
+
+  await openManager(panel)
+  click(rowButton(managerRow(panel, 'status.failed'), 'action.delete'))
+  await panel.settle()
+  assert.ok(panel.byClass('hub-modal'), 'a delete must be confirmed first')
+  panel.click(panel.byText('action.confirm'))
+  await panel.settle()
+
+  assert.equal(storedStatuses().some(status => status.id === 'failed'), false,
+    'the status must be gone from the store')
+  assert.equal(regionNamed(panel, 'status.failed'), undefined, 'and no region is left for it')
+  assert.deepEqual(regionNames(panel), ['status.pending', 'status.onhold'],
+    'the other regions are untouched')
+})
+
+test('a status the user renames renames the region header', async () => {
+  const panel = await mountPanel()
+  await withAnItem(panel, 'alpha')
+  assert.equal(regionLabel(panel, 'status.pending'), 'status.pending',
+    'a definition the user never renamed follows the application language')
+
+  await openManager(panel)
+  const row = managerRow(panel, 'status.pending')
+  rowName(row).props.onChange({ target: { value: 'Blocked' } })
+  await panel.settle()
+  rowName(managerRow(panel, 'Blocked')).props.onBlur()
+  await panel.settle()
+
+  assert.equal(storedStatuses().find(status => status.id === 'pending').label, 'Blocked',
+    'the rename must reach the store')
+  assert.equal(regionLabel(panel, 'Blocked'), 'Blocked',
+    'and the region header follows the status name')
+  assert.equal(regionNamed(panel, 'status.pending'), undefined,
+    'the region is no longer named after the locale key')
 })
 
 test('a Note is one region with no header, and never folds', async () => {
@@ -713,11 +1013,42 @@ function findInside(panel, className, predicate) {
   return container === undefined ? undefined : findNode(container, predicate)
 }
 
-/** The region whose header carries `labelKey`; undefined when it is not shown. */
-function regionLabelled(panel, labelKey) {
+/**
+ * The region whose header carries `name`; undefined when it is not shown.
+ *
+ * A region's name is its status's own name, so a built-in status answers with
+ * its locale key and a status the user renamed answers with their own text.
+ */
+function regionNamed(panel, name) {
   return panel.find(node => node.props?.className === 'hub-region'
     && (node.children ?? []).some(child =>
-      child.props?.className === 'hub-region-head' && textOf(child).includes(labelKey)))
+      child.props?.className === 'hub-region-head' && textOf(child).includes(name)))
+}
+
+/** The header of the region named `name`. */
+function regionHead(panel, name) {
+  const region = regionNamed(panel, name)
+  if (region === undefined) return undefined
+  return (region.children ?? []).find(child => child.props?.className === 'hub-region-head')
+}
+
+/** The text the named region's header carries. */
+function regionLabel(panel, name) {
+  const head = regionHead(panel, name)
+  if (head === undefined) return undefined
+  const label = (head.children ?? []).find(child => child.props?.className === 'hub-region-label')
+  return label === undefined ? undefined : textOf(label)
+}
+
+/** The label of every region, in the order the panel draws them. */
+function regionNames(panel) {
+  return panel.allByClass('hub-region').map(region => {
+    const head = (region.children ?? []).find(child => child.props?.className === 'hub-region-head')
+    const label = head === undefined
+      ? undefined
+      : (head.children ?? []).find(child => child.props?.className === 'hub-region-label')
+    return label === undefined ? '' : textOf(label)
+  })
 }
 
 /** The item names rendered inside `node`, in document order. */
@@ -726,29 +1057,131 @@ function namesIn(node) {
   return collect(node, child => child.props?.className === 'hub-item-name').map(textOf)
 }
 
-/** The card or row showing `name`, and its own completion checkbox. */
+/** The card or row showing `name`. */
 function itemNamed(panel, name) {
   return panel.find(node => (node.props?.className === 'hub-card' || node.props?.className === 'hub-row')
     && textOf(node).includes(name))
 }
 
-async function completeNamed(panel, name) {
-  const item = itemNamed(panel, name)
-  // The checkbox sits at the trailing end of the card's title row rather than
-  // beside the card, so this is a subtree search and not a child lookup.
-  const check = item === undefined
-    ? undefined
-    : findNode(item, child => child.props?.className === 'hub-done-check')
-  assert.ok(check !== undefined, `the item named ${name} must carry a completion checkbox`)
-  click(check, item)
+/** The status badge of an item, at the trailing end of its title row. */
+function badgeOf(item) {
+  return item === undefined ? undefined : findNode(item, child => child.props?.className === 'hub-status')
+}
+
+/**
+ * Open the status picker on an item.
+ *
+ * The badge sits at the trailing end of the card's title row rather than
+ * beside the card, so this is a subtree search and not a child lookup.
+ *
+ * @param panel The driver.
+ * @param name The item's name, or nothing for the first one on screen.
+ * @returns The badge that was clicked.
+ */
+async function openPicker(panel, name) {
+  const item = name === undefined
+    ? (panel.byClass('hub-card') ?? panel.byClass('hub-row'))
+    : itemNamed(panel, name)
+  const badge = badgeOf(item)
+  assert.ok(badge !== undefined, 'the item must carry a status badge')
+  click(badge, item)
   await panel.settle()
+  assert.ok(panel.byClass('hub-popover') !== undefined, 'the badge must open the status picker')
+  return badge
+}
+
+/** The picker's row showing `text`. */
+function popoverRow(panel, text) {
+  const popover = panel.byClass('hub-popover')
+  if (popover === undefined) return undefined
+  return (popover.children ?? []).find(child => textOf(child).includes(text))
+}
+
+/** Move the item named `name` into the status showing `text`. */
+async function setStatusNamed(panel, name, text) {
+  await openPicker(panel, name)
+  const row = popoverRow(panel, text)
+  assert.ok(row !== undefined, `the picker must offer ${text}`)
+  click(row)
+  await panel.settle()
+}
+
+/** Open the status manager from the picker. */
+async function openManager(panel) {
+  await openPicker(panel)
+  const row = popoverRow(panel, 'status.manage')
+  assert.ok(row !== undefined, 'the picker must offer the manager')
+  click(row)
+  await panel.settle()
+  assert.ok(panel.byClass('hub-status-list') !== undefined, 'the manager must open')
+}
+
+/** The sort menu's row for `text`. */
+function sortRow(panel, text) {
+  const menu = panel.byClass('hub-menu')
+  if (menu === undefined) return undefined
+  return collect(menu, node => node.type === 'button' && textOf(node).includes(text))
+    .find(node => node.props?.className === 'hub-menu-item')
+}
+
+/** Open the sort menu and choose a direction. */
+async function chooseSortDirection(panel, direction) {
+  panel.click(panel.byLabel('action.sort'))
+  await panel.settle()
+  const row = sortRow(panel, `sort.${direction}`)
+  assert.ok(row !== undefined, `the sort menu must offer ${direction}`)
+  click(row)
+  await panel.settle()
+}
+
+/** The manager row whose name field shows `text`. */
+function managerRow(panel, text) {
+  return panel.allByClass('hub-status-row')
+    .find(row => (row.children ?? []).some(child => child.props?.value === text))
+}
+
+/** The first control of a manager row matching `predicate`. */
+function rowControl(row, predicate) {
+  return (row?.children ?? []).find(child => predicate(child))
+}
+
+/** The tone swatch of a manager row. */
+function rowSwatch(row) {
+  return rowControl(row, child => child.props?.className === 'hub-tone-swatch')
+}
+
+/** The terminal toggle of a manager row. */
+function rowToggle(row) {
+  return rowControl(row, child => child.props?.role === 'switch')
+}
+
+/** The name field of a manager row. */
+function rowName(row) {
+  return rowControl(row, child => child.type === 'input')
+}
+
+/** One of a manager row's icon buttons. */
+function rowButton(row, label) {
+  return rowControl(row, child => child.props?.['aria-label'] === label)
+}
+
+/** The tone swatch carrying `tone` in the open tone chooser. */
+function toneSwatch(panel, tone) {
+  const picker = panel.byClass('hub-tone-picker')
+  if (picker === undefined) return undefined
+  return (picker.children ?? []).find(child => child.props?.['aria-label'] === `tone.${tone}`)
+}
+
+/** The manager's add row. */
+function addRow(panel) {
+  return panel.byClass('hub-status-add')
 }
 
 /**
  * Let the clock move.
  *
  * Completion is stamped to the millisecond, so two tasks finished back to back
- * without a pause can share a stamp — and the finished region's order is then
+ * without a pause can share a stamp — and a terminal region's order is then
  * decided by the id tiebreak, which would make this file's ordering assertions
  * depend on how fast the machine is.
  */
@@ -825,42 +1258,119 @@ test('a Note offers no priority row', async () => {
   assert.equal(choiceRow(panel), undefined, 'priority is a TODO field')
 })
 
-/** The completion checkbox, on a card or on a row. */
-function doneCheck(panel) {
-  return panel.find(node => node.props?.className === 'hub-done-check')
+/** The status badge, on a card or on a row. */
+function statusBadge(panel) {
+  return panel.find(node => node.props?.className === 'hub-status')
 }
 
-/** The completion checkbox inside the open dialog. The item list stays mounted
- *  behind the scrim, so a whole-panel lookup would find the item's own box. */
-function doneCheckInModal(panel) {
-  return findInside(panel, 'hub-modal', node => node.props?.className === 'hub-done-check')
+/** The status badge inside the open dialog. The item list stays mounted
+ *  behind the scrim, so a whole-panel lookup would find the item's own badge. */
+function statusBadgeInModal(panel) {
+  return findInside(panel, 'hub-modal', node => node.props?.className === 'hub-status')
 }
 
-test('a TODO completes from the item itself, without a dialog', async () => {
-  // The interaction this replaces: open the item, click Edit, tick the box,
-  // click Confirm — four activations and two dialogs to flip one boolean.
+test('a TODO carries a status badge, and the badge shows the status text', async () => {
+  // The completion control used to be a checkbox. It is a single-select over a
+  // list the user curates now, so it is a badge that opens a picker.
+  const panel = await mountPanel()
+  await withAnItem(panel, '发布检查清单')
+
+  const badge = statusBadge(panel)
+  assert.ok(badge !== undefined, 'a TODO must carry its own status badge')
+  assert.equal(badge.type, 'button', 'the badge is a control, not a decoration')
+  assert.equal(badge.props['aria-label'], 'field.status: status.pending',
+    'the accessible name says what the control is and what it holds')
+  assert.equal(badge.props.title, 'field.status')
+  assert.equal(badge.props['data-tone'], 'neutral',
+    'a new TODO starts in the pending status, which is painted neutral')
+  assert.match(textOf(badge), /status\.pending/, 'the badge shows the status text')
+  assert.equal(panel.find(node => node.props?.className === 'hub-done-check'), undefined,
+    'the checkbox is gone: the badge replaced it')
+})
+
+test('the badge opens the picker and not the item', async () => {
+  // The item is a button that opens the detail dialog, so the badge has to
+  // stop the click: changing a status must not also open the thing it changed.
   const panel = await mountPanel()
   await withAnItem(panel, '发布检查清单')
 
   const item = panel.byClass('hub-card') ?? panel.byClass('hub-row')
-  const check = doneCheck(panel)
-  assert.ok(check !== undefined, 'a TODO must carry its own completion checkbox')
-  assert.equal(check.props.checked, false, 'a new TODO starts unfinished')
-
-  // The item is a button that opens the detail dialog, so the checkbox has to
-  // stop the click: completing a TODO must not also open the thing it changed.
-  const event = click(check, item)
+  const badge = statusBadge(panel)
+  const event = click(badge, item)
   await panel.settle()
 
   assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
-  assert.equal(event.stopped, true, 'the checkbox must stop the click before the item')
-  assert.equal(stored()[0].done, true, 'completion must be written through the Remote')
-  assert.equal(panel.byClass('hub-modal'), undefined, 'completing must not open a dialog')
-  assert.equal(doneCheck(panel).props.checked, true,
-    'the item must come back ticked from the store, not from a local guess')
+  assert.equal(event.stopped, true, 'the badge must stop the click before the item')
+  assert.equal(panel.byClass('hub-modal'), undefined, 'the badge must not open a dialog')
+  assert.ok(panel.byClass('hub-popover'), 'the badge must open the status picker')
+  assert.equal(panel.allByClass('hub-popover').length, 1, 'and there is one popover, not one per item')
 })
 
-test('the list row completes its item the same way', async () => {
+test('the picker is placed at the badge that opened it, and inside the panel', async () => {
+  // The popover is positioned against the panel, so the trigger's box is
+  // measured against the surface's at click time. It hangs its right edge off
+  // the badge's right edge rather than its left: the badge sits at the trailing
+  // end of the card, so a popover growing rightwards would hang out of the
+  // panel and over the conversation behind it.
+  const panel = await mountPanel()
+  await withAnItem(panel, '发布检查清单')
+  rects.set('hub-surface', rect(100, 40, 400, 560))
+  rects.set('hub-status', rect(160, 90, 64, 20))
+
+  await openPicker(panel)
+
+  const popover = panel.byClass('hub-popover')
+  assert.equal(popover.props.style.right, '276px', 'the popover hangs off the badge, inside the panel')
+  assert.equal(popover.props.style.top, '70px', 'and below it')
+  assert.equal(popover.props.style.bottom, undefined, 'and not above it')
+  rects.clear()
+})
+
+test('the picker rises above the badge when there is no room below it', async () => {
+  // The same placement, with the badge near the panel's bottom edge: the
+  // popover flips rather than opening off the end of the panel.
+  const panel = await mountPanel()
+  await withAnItem(panel, '发布检查清单')
+  rects.set('hub-surface', rect(100, 40, 400, 560))
+  rects.set('hub-status', rect(160, 540, 64, 20))
+
+  await openPicker(panel)
+
+  const popover = panel.byClass('hub-popover')
+  assert.equal(popover.props.style.bottom, '60px', 'the popover opens upwards')
+  assert.equal(popover.props.style.top, undefined, 'and not downwards')
+  rects.clear()
+})
+
+test('choosing a status writes it through the Remote', async () => {
+  const panel = await mountPanel()
+  await withAnItem(panel, '发布检查清单')
+
+  await setStatusNamed(panel, '发布检查清单', 'status.doing')
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  assert.equal(stored()[0].status, 'doing', 'the chosen status must reach the store')
+  assert.equal(panel.byClass('hub-popover'), undefined, 'the picker closes behind the choice')
+  assert.match(textOf(statusBadge(panel)), /status\.doing/,
+    'the badge comes back from the store, not from a local guess')
+})
+
+test('choosing a status moves the item into the region of that status', async () => {
+  const panel = await mountPanel()
+  await withAnItem(panel, 'alpha')
+  assert.ok(regionNamed(panel, 'status.pending') !== undefined, 'a new TODO is filed in the pending status')
+
+  await setStatusNamed(panel, 'alpha', 'status.doing')
+
+  const doing = regionNamed(panel, 'status.doing')
+  assert.ok(doing !== undefined, 'the status the item moved into has a region')
+  assert.equal(doing.props['data-open'], 'true', 'and the region it landed in opens itself')
+  assert.equal(regionNamed(panel, 'status.pending'), undefined,
+    'the status it left has nothing in it and is not rendered')
+  assert.deepEqual(namesIn(doing), ['alpha'])
+})
+
+test('the list row carries a status badge too', async () => {
   const panel = await mountPanel()
   await withAnItem(panel, '发布检查清单')
 
@@ -869,24 +1379,44 @@ test('the list row completes its item the same way', async () => {
   const row = panel.byClass('hub-row')
   assert.ok(row !== undefined, 'the row view must be on screen')
 
-  const check = doneCheck(panel)
-  assert.ok(check !== undefined, 'a row must carry its own completion checkbox')
-  click(check, row)
-  await panel.settle()
-
-  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
-  assert.equal(stored()[0].done, true)
-  assert.equal(panel.byClass('hub-modal'), undefined, 'completing must not open a dialog')
+  const badge = badgeOf(row)
+  assert.ok(badge !== undefined, 'a row must carry its own status badge')
+  assert.match(textOf(badge), /status\.pending/, 'and it shows the status text')
 })
 
-test('neither the create form nor the edit form offers completion', async () => {
+test('Escape closes the status picker', async () => {
+  const panel = await mountPanel()
+  await withAnItem(panel, '发布检查清单')
+  await openPicker(panel)
+
+  panel.byClass('hub-root').props.onKeyDown({ key: 'Escape', preventDefault() {} })
+  await panel.settle()
+
+  assert.equal(panel.byClass('hub-popover'), undefined, 'Escape must close the picker')
+  assert.equal(panel.byClass('hub-modal'), undefined, 'and it must not open a dialog')
+})
+
+test('opening another menu closes the status picker', async () => {
+  // One menu at a time: the picker and the sort menu cannot both be open.
+  const panel = await mountPanel()
+  await withAnItem(panel, '发布检查清单')
+  await openPicker(panel)
+
+  panel.click(panel.byLabel('action.sort'))
+  await panel.settle()
+
+  assert.equal(panel.byClass('hub-popover'), undefined, 'the picker must close')
+  assert.ok(panel.byClass('hub-menu'), 'and the menu that replaced it must open')
+})
+
+test('neither the create form nor the edit form offers a status control', async () => {
   const panel = await mountPanel()
   await withAnItem(panel, '发布检查清单')
 
   panel.click(panel.byLabel('action.create'))
   await panel.settle()
   assert.ok(panel.byClass('hub-modal'), 'the create form must be on screen')
-  assert.equal(doneCheckInModal(panel), undefined, 'completion belongs to the item, not the form')
+  assert.equal(statusBadgeInModal(panel), undefined, 'the status belongs to the item, not the form')
   panel.click(panel.byText('action.cancel'))
   await panel.settle()
 
@@ -895,18 +1425,16 @@ test('neither the create form nor the edit form offers completion', async () => 
   panel.click(panel.byText('action.edit'))
   await panel.settle()
   assert.ok(panel.byClass('hub-textarea'), 'the edit form must be on screen')
-  assert.equal(doneCheckInModal(panel), undefined, 'the edit form must not offer completion either')
+  assert.equal(statusBadgeInModal(panel), undefined, 'the edit form must not offer the status either')
 })
 
-test('editing a completed TODO leaves it completed', async () => {
-  // The form no longer carries `done`, so the draft still has to round trip it:
-  // an update that dropped the field would clear the completion a checkbox set,
+test('editing a TODO leaves its status alone', async () => {
+  // The form carries no status control, so the draft still has to round trip
+  // it: an update that dropped the field would clear the status a badge set,
   // every time somebody changed the title.
   const panel = await mountPanel()
   await withAnItem(panel, '发布检查清单')
-  click(doneCheck(panel), panel.byClass('hub-card') ?? panel.byClass('hub-row'))
-  await panel.settle()
-  assert.equal(stored()[0].done, true)
+  await setStatusNamed(panel, '发布检查清单', 'status.doing')
 
   panel.click(panel.byClass('hub-card') ?? panel.byClass('hub-row'))
   await panel.settle()
@@ -919,13 +1447,13 @@ test('editing a completed TODO leaves it completed', async () => {
 
   assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
   assert.equal(stored()[0].title, '发布检查清单 v2')
-  assert.equal(stored()[0].done, true, 'saving the edit form must not clear completion')
+  assert.equal(stored()[0].status, 'doing', 'saving the edit form must not clear the status')
 })
 
-test('a Note carries no completion checkbox', async () => {
-  // `done` is a TODO field. A checkbox on a Note would write one the model does
-  // not carry, and the Host drops an unrecognised field by design — so it would
-  // read back unfinished forever with nothing to say why.
+test('a Note carries no status badge', async () => {
+  // `status` is a TODO field. A badge on a Note would write one the model does
+  // not carry, and the Host drops an unrecognised field by design — so it
+  // would read back unfinished forever with nothing to say why.
   const panel = await mountPanel()
   panel.expand()
   await panel.settle()
@@ -939,7 +1467,184 @@ test('a Note carries no completion checkbox', async () => {
   await panel.settle()
 
   assert.equal(stored()[0].kind, 'note')
-  assert.equal(doneCheck(panel), undefined, 'only a TODO carries completion')
+  assert.equal(statusBadge(panel), undefined, 'only a TODO carries a status')
+})
+
+test('a Host that sends no status list still renders the panel', async () => {
+  // The running Host can be older than the panel: it sends no `statuses` at
+  // all. The panel keeps working, and the notice is what says so.
+  legacyHost = true
+  try {
+    const panel = await mountPanel()
+    panel.expand()
+    await panel.settle()
+    panel.click(panel.byLabel('action.create'))
+    await panel.settle()
+    fieldByLabel(panel, 'field.title').props.onChange({ target: { value: '标题在位' } })
+    await panel.settle()
+    panel.byClass('hub-textarea').props.onChange({ target: { value: '正文' } })
+    await panel.settle()
+    panel.click(panel.byText('action.confirm'))
+    await panel.settle()
+
+    assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+    assert.equal(panel.byClass('hub-broken'), undefined,
+      'an older Host is a notice, not a failure state')
+    assert.equal(panel.byClass('hub-status'), undefined, 'there is no badge to paint without a definition')
+    const notice = panel.byClass('hub-notice')
+    assert.match(textOf(notice), /\bstatus\b/, 'the notice must name the field the Host is missing')
+    // The regions are the statuses, and this Host sends none: there is no
+    // status to frame the list by, so the items are filed in one unlabelled
+    // region instead — the panel must not show an empty list over a store
+    // full of items. The notice is what says why it looks like that.
+    assert.ok(panel.byClass('hub-regions') !== undefined,
+      'the items are still framed by something, or they would be invisible')
+    assert.equal(panel.byClass('hub-region-head'), undefined,
+      'and that something carries no header: there is no status to name it after')
+    assert.ok(panel.byClass('hub-card') ?? panel.byClass('hub-row'),
+      'a TODO whose status no definition carries is still on screen')
+  }
+  finally {
+    legacyHost = false
+  }
+})
+
+test('the status manager adds a status through the Remote', async () => {
+  const panel = await mountPanel()
+  await withAnItem(panel, 'alpha')
+  await openManager(panel)
+
+  rowControl(addRow(panel), child => child.type === 'input')
+    .props.onChange({ target: { value: 'Blocked' } })
+  await panel.settle()
+  rowControl(addRow(panel), child => child.props?.className === 'hub-text-button').props.onClick()
+  await panel.settle()
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  assert.ok(storedStatuses().some(status => status.label === 'Blocked'),
+    'the new status must reach the store')
+})
+
+test('the status manager renames a status through the Remote', async () => {
+  const panel = await mountPanel()
+  await withAnItem(panel, 'alpha')
+  await openManager(panel)
+
+  const row = managerRow(panel, 'status.doing')
+  assert.ok(row !== undefined, 'the manager must list the built-in statuses')
+  rowName(row).props.onChange({ target: { value: 'In flight' } })
+  await panel.settle()
+  rowName(managerRow(panel, 'In flight')).props.onBlur()
+  await panel.settle()
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  const renamed = storedStatuses().find(status => status.id === 'doing')
+  assert.equal(renamed.label, 'In flight', 'the rename must reach the store')
+  assert.equal(renamed.labelKey, '', 'a renamed status keeps its own text and gives up the locale key')
+})
+
+test('the status manager re-colours a status through the Remote', async () => {
+  const panel = await mountPanel()
+  await withAnItem(panel, 'alpha')
+  await openManager(panel)
+
+  const row = managerRow(panel, 'status.pending')
+  click(rowSwatch(row))
+  await panel.settle()
+  const swatch = toneSwatch(panel, 'danger')
+  assert.ok(swatch !== undefined, 'the tone chooser must offer every tone')
+  click(swatch)
+  await panel.settle()
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  assert.equal(storedStatuses().find(status => status.id === 'pending').tone, 'danger',
+    'the new colour must reach the store')
+})
+
+test('the status manager flips the terminal flag through the Remote', async () => {
+  const panel = await mountPanel()
+  await withAnItem(panel, 'alpha')
+  await openManager(panel)
+
+  const row = managerRow(panel, 'status.pending')
+  assert.equal(rowToggle(row).props['aria-checked'], 'false', 'a pending status is not terminal')
+  click(rowToggle(row))
+  await panel.settle()
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  assert.equal(storedStatuses().find(status => status.id === 'pending').done, true,
+    'the terminal flag must reach the store')
+})
+
+test('the status manager re-orders a status through the Remote', async () => {
+  const panel = await mountPanel()
+  await withAnItem(panel, 'alpha')
+  await openManager(panel)
+
+  const row = managerRow(panel, 'status.doing')
+  click(rowButton(row, 'action.moveUp'))
+  await panel.settle()
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  assert.deepEqual(storedStatuses().map(status => status.id).slice(0, 2), ['doing', 'pending'],
+    'the moved status takes the position it was sent to')
+})
+
+test('the status manager deletes a status through the Remote', async () => {
+  const panel = await mountPanel()
+  await withAnItem(panel, 'alpha')
+  await openManager(panel)
+
+  const row = managerRow(panel, 'status.cancelled')
+  click(rowButton(row, 'action.delete'))
+  await panel.settle()
+  assert.ok(panel.byClass('hub-modal'), 'a delete must be confirmed first')
+  panel.click(panel.byText('action.confirm'))
+  await panel.settle()
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  assert.equal(storedStatuses().some(status => status.id === 'cancelled'), false,
+    'the status must be gone from the store')
+})
+
+test('a status that items still carry cannot be deleted, and the Host says why', async () => {
+  // The refusal is the Host's, and it is worth saying: silently moving the
+  // items would be a data change the user never asked for.
+  const panel = await mountPanel()
+  await withAnItem(panel, 'alpha')
+  await openManager(panel)
+
+  const row = managerRow(panel, 'status.pending')
+  click(rowButton(row, 'action.delete'))
+  await panel.settle()
+  panel.click(panel.byText('action.confirm'))
+  await panel.settle()
+
+  const notice = panel.byClass('hub-notice')
+  assert.ok(notice !== undefined, 'the refusal must reach the user')
+  assert.equal(notice.props['data-tone'], 'error')
+  assert.match(textOf(notice), /still carried by 1 item/, 'the message says how many are in the way')
+  assert.equal(storedStatuses().some(status => status.id === 'pending'), true,
+    'and the status is still there')
+})
+
+test("the badge's own rules are made of tokens only", () => {
+  // The badge is the one place the panel mixes two colours, so its rules are
+  // the ones most likely to grow a literal — and a literal is a colour that
+  // does not follow the theme.
+  const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+  const badge = source.slice(source.indexOf('.hub-status {'), source.indexOf('.hub-popover {'))
+  assert.notEqual(badge.length, 0, 'the badge rules must be there')
+  const literals = [...badge.matchAll(/#[0-9a-f]{3,8}\b|\brgba?\(|\bhsla?\(/gi)]
+  assert.deepEqual(literals, [], 'no literal colour may reach the badge')
+  assert.match(badge, /backdrop-filter: blur\([^)]*\) saturate\([^)]*\)/,
+    'the badge pane must be frosted')
+  assert.match(badge, /mask-image: radial-gradient/, 'the two washes must be masked into each other')
+  assert.match(badge, /var\(--hub-ink\) 0%, transparent/,
+    'the mask carries alpha only, so its opaque end may be any opaque token')
+  for (const tone of ['neutral', 'info', 'brand', 'success', 'warn', 'danger', 'muted']) {
+    assert.match(badge, new RegExp(`data-tone="${tone}"`), `the ${tone} tone must map to a token pair`)
+  }
 })
 
 test('a Note saves its title on edit as well', async () => {
