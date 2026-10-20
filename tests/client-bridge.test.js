@@ -91,6 +91,16 @@ test('the delete is mounted as `delete` over the Host\'s `remove`', () => {
   assert.match(CLIENT_SOURCE, /hubCall\('delete', id\)/)
 })
 
+test('the status trio is mounted with the Host\'s parameter order', () => {
+  // The three status methods travel the same wire the Host publishes them on:
+  // `createStatus(draft)`, `updateStatus(id, patch)` and `deleteStatus(id)`,
+  // the last one reaching the Host's `removeStatus` through `implementation`.
+  assert.match(CLIENT_SOURCE, /clientInvocation\('createStatus', \['draft'\]\)/)
+  assert.match(CLIENT_SOURCE, /clientInvocation\('updateStatus', \['id', 'patch'\]\)/)
+  assert.match(CLIENT_SOURCE, /clientInvocation\('deleteStatus',\s*\['id'\]\),\s*implementation: 'removeStatus'/)
+  assert.doesNotMatch(CLIENT_SOURCE, /clientInvocation\('removeStatus'/, '`removeStatus` is the implementation, not the published name')
+})
+
 test('every mounted descriptor carries the fields validateInvocation requires', () => {
   // Rebuilt from the roster with the same rules `clientInvocation` applies, so
   // a future edit that drops a required field fails here rather than in the page.

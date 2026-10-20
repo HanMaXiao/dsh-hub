@@ -83,7 +83,16 @@ test('the `hub` service exists — the one the gateway resolves per call', async
   const service = root.get(SERVICE_KEY)
   assert.notEqual(service, undefined, `active Service ${JSON.stringify(SERVICE_KEY)} is unavailable`)
   assert.equal(typeof service.list, 'function')
-  assert.deepEqual(service.list(), { version: 1, items: [] })
+  const listed = service.list()
+  assert.deepEqual(Object.keys(listed).sort(), ['items', 'statuses', 'version'])
+  assert.equal(listed.version, 1)
+  assert.deepEqual(listed.items, [])
+  // A store that has never been written carries the built-in statuses, in the
+  // order the contract fixes them.
+  assert.deepEqual(
+    listed.statuses.map(status => status.id),
+    ['pending', 'doing', 'done', 'failed', 'onhold', 'cancelled'],
+  )
 })
 
 test('the Remote declares the store it reads instead of assuming it', () => {
@@ -102,7 +111,10 @@ test('the receipt is written after the Remote settles, and names the wire method
     namespace: SERVICE_KEY,
     boundTo: SERVICE_KEY,
     // Markers carry the service's own method names; the receipt shows endpoints.
-    methods: ['list:direct', 'create:direct', 'update:direct', 'delete:direct'],
+    methods: [
+      'list:direct', 'create:direct', 'update:direct', 'delete:direct',
+      'createStatus:direct', 'updateStatus:direct', 'deleteStatus:direct',
+    ],
   })
 })
 
@@ -111,7 +123,10 @@ test('the protocol reads back a marker on every published method', async t => {
   t.after(() => rmSync(dataDir, { recursive: true, force: true }))
 
   const markers = remoteMethods(root.get(SERVICE_KEY))
-  assert.deepEqual(markers.map(marker => marker.method), ['list', 'create', 'update', 'remove'])
+  assert.deepEqual(markers.map(marker => marker.method), [
+    'list', 'create', 'update', 'remove',
+    'createStatus', 'updateStatus', 'removeStatus',
+  ])
 })
 
 test('a Remote started without its store is refused rather than half-mounted', async () => {

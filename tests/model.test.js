@@ -9,6 +9,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { applyPatch, formatBytes, HubValidationError, normalizeItem, PRIORITIES } from '../lib/model.js'
+import { DEFAULT_STATUSES } from '../lib/status.js'
 
 const AT = new Date('2026-10-15T02:04:15.123Z')
 
@@ -34,15 +35,15 @@ const todo = { kind: 'todo', description: 'ship the panel' }
 test('a minimal TODO takes every §5 field and its documented defaults', () => {
   const item = normalizeItem(todo, {}, AT)
   assert.deepEqual(Object.keys(item).sort(), [
-    'attachments', 'category', 'completedAt', 'createdAt', 'description', 'done',
-    'id', 'kind', 'note', 'priority', 'title', 'updatedAt',
+    'attachments', 'category', 'completedAt', 'createdAt', 'description', 'id',
+    'kind', 'note', 'priority', 'status', 'title', 'updatedAt',
   ])
   assert.equal(item.kind, 'todo')
   assert.equal(item.title, '')
   assert.equal(item.description, 'ship the panel')
   assert.equal(item.category, '')
   assert.equal(item.priority, 'normal')
-  assert.equal(item.done, false)
+  assert.equal(item.status, 'pending')
   assert.equal(item.completedAt, '', 'an open TODO has not been finished, so it carries no stamp')
   assert.equal(item.note, '')
   assert.deepEqual(item.attachments, [])
@@ -50,34 +51,112 @@ test('a minimal TODO takes every §5 field and its documented defaults', () => {
   assert.equal(item.updatedAt, item.createdAt)
 })
 
+test('a TODO stores a status and no completion boolean of its own', () => {
+  // One completion fact, not two: the item says which status it is in, and
+  // the status says whether that counts as finished (DESIGN §5.1).
+  const item = normalizeItem({ ...todo, done: true }, {}, AT)
+  assert.equal('done' in item, false, 'the boolean would be a second fact that could disagree with the status')
+  assert.equal(item.status, 'done')
+})
+
 test('finishing a TODO stamps completedAt, and reopening clears it', () => {
   // The Host owns this stamp for the same reason it owns `createdAt`: the
   // Client orders the finished half of the list by it, and a Client-supplied
   // timestamp would be a second source for a durable fact.
   const open = normalizeItem(todo, {}, AT)
-  const done = applyPatch(open, { done: true }, {}, AT)
-  assert.equal(done.done, true)
+  const done = applyPatch(open, { status: 'done' }, {}, AT)
+  assert.equal(done.status, 'done')
   assert.equal(done.completedAt, '2026-10-15T02:04:15.123Z')
 
   const again = applyPatch(done, { title: 'renamed' }, {}, AT)
   assert.equal(again.completedAt, done.completedAt,
     'editing a finished TODO must not restamp it or it jumps the finished list')
 
-  const reopened = applyPatch(done, { done: false }, {}, AT)
-  assert.equal(reopened.done, false)
+  const reopened = applyPatch(done, { status: 'pending' }, {}, AT)
+  assert.equal(reopened.status, 'pending')
   assert.equal(reopened.completedAt, '', 'an open TODO carries no stamp, however it got there')
+})
+
+test('a patch cannot supply completedAt: the Host owns the stamp', () => {
+  const done = applyPatch(normalizeItem(todo, {}, AT), { status: 'done' }, {}, AT)
+  const patched = applyPatch(done, { completedAt: '2020-01-01T00:00:00.000Z' }, {}, AT)
+  assert.equal(patched.completedAt, done.completedAt,
+    'a Client-supplied timestamp is a second source for a fact the store owns')
+})
+
+test('the terminal flag of the status decides what finished means', () => {
+  // `cancelled` is terminal and `failed` is not, so the definitions and not
+  // their names are what separate the finished half of the list from the
+  // unfinished one (DESIGN §6.1).
+  assert.equal(normalizeItem({ ...todo, status: 'cancelled' }, {}, AT).completedAt, AT.toISOString())
+  assert.equal(normalizeItem({ ...todo, status: 'failed' }, {}, AT).completedAt, '')
+})
+
+test('an open TODO carries no stamp however it arrived', () => {
+  assert.equal(normalizeItem({ ...todo, status: 'doing', completedAt: '2026-10-15T02:04:15.123Z' }, {}, AT).completedAt, '')
 })
 
 test('a completedAt that is present but malformed is rejected', () => {
   // Absent is a state the shape defines — a document written before the field
   // existed has none — but a value that is there and wrong would silently
   // misfile one task in the finished list.
-  const rejects = () => normalizeItem({ ...todo, done: true, completedAt: 'yesterday' }, {}, AT)
+  const rejects = () => normalizeItem({ ...todo, status: 'done', completedAt: 'yesterday' }, {}, AT)
   assert.throws(rejects, /completedAt/)
   assert.equal(
-    normalizeItem({ ...todo, done: true, completedAt: '2026-10-15T02:04:15.123Z' }, {}, AT).completedAt,
+    normalizeItem({ ...todo, status: 'done', completedAt: '2026-10-15T02:04:15.123Z' }, {}, AT).completedAt,
     '2026-10-15T02:04:15.123Z',
   )
+})
+
+test('an item written before the enum existed reads as the status its boolean meant', () => {
+  const finished = normalizeItem({ ...todo, done: true }, {}, AT)
+  assert.equal(finished.status, 'done', 'the boolean meant the terminal status named done')
+  assert.equal(finished.completedAt, AT.toISOString(), 'an item that was already finished completes as it was created')
+
+  const open = normalizeItem({ ...todo, done: false }, {}, AT)
+  assert.equal(open.status, 'pending', 'a boolean that was not set means the default status')
+  assert.equal(open.completedAt, '')
+})
+
+test('a legacy boolean maps onto the first terminal status when there is no done', () => {
+  // A user who retired the definition named `done` leaves the first terminal
+  // definition to carry the meaning instead.
+  const statuses = DEFAULT_STATUSES.filter(status => status.id !== 'done')
+  const item = normalizeItem({ ...todo, done: true }, {}, AT, statuses)
+  assert.equal(item.status, 'cancelled')
+})
+
+test('a patch from a Client older than this build still writes a completion', () => {
+  const open = normalizeItem(todo, {}, AT)
+  const done = applyPatch(open, { done: true }, {}, AT)
+  assert.equal(done.status, 'done')
+  assert.equal(done.completedAt, AT.toISOString())
+
+  const reopened = applyPatch(done, { done: false }, {}, AT)
+  assert.equal(reopened.status, 'pending')
+  assert.equal(reopened.completedAt, '')
+})
+
+test('a patch naming a status is taken over the legacy boolean', () => {
+  const patched = applyPatch(normalizeItem(todo, {}, AT), { status: 'doing', done: true }, {}, AT)
+  assert.equal(patched.status, 'doing')
+  assert.equal(patched.completedAt, '', 'doing is not a terminal status, so nothing was finished')
+})
+
+test('a patch that says nothing about the status leaves the stored one alone', () => {
+  const item = applyPatch(normalizeItem(todo, {}, AT), { status: 'doing' }, {}, AT)
+  assert.equal(applyPatch(item, { title: 'renamed' }, {}, AT).status, 'doing')
+})
+
+test('an unknown status id is rejected naming the field and the accepted ids', () => {
+  const message = rejects(() => normalizeItem({ ...todo, status: 'nope' }, {}, AT), 'status')
+  assert.equal(message, 'dsh-hub: status must be one of pending|doing|done|failed|onhold|cancelled, received "nope"')
+})
+
+test('a TODO is checked against the status list the store carries', () => {
+  const statuses = [...DEFAULT_STATUSES, { id: 'blocked', label: 'Blocked', labelKey: '', tone: 'warn', done: false }]
+  assert.equal(normalizeItem({ ...todo, status: 'blocked' }, {}, AT, statuses).status, 'blocked')
+  rejects(() => normalizeItem({ ...todo, status: 'blocked' }, {}, AT), 'status')
 })
 
 test('a NOTE carries text and images and no category or priority', () => {
@@ -171,7 +250,9 @@ test('content must be a string when it is present', () => {
   rejects(() => normalizeItem({ kind: 'note', text: 42 }, {}, AT), 'text')
 })
 
-test('done must be a boolean', () => {
+test('the legacy done must be a boolean when it is there at all', () => {
+  // It is read as an alias for a status, so a value that is not a boolean is a
+  // defect in a field the Host is about to interpret — not a field to drop.
   const message = rejects(() => normalizeItem({ ...todo, done: 'yes' }, {}, AT), 'done')
   assert.equal(message, 'dsh-hub: done must be a boolean, received "yes"')
 })
@@ -269,8 +350,8 @@ const stored = normalizeItem(todo, {}, AT)
 
 test('a patch changes content and restamps updatedAt only', () => {
   const later = new Date('2026-10-16T00:00:00.000Z')
-  const patched = applyPatch(stored, { done: true }, {}, later)
-  assert.equal(patched.done, true)
+  const patched = applyPatch(stored, { status: 'done' }, {}, later)
+  assert.equal(patched.status, 'done')
   assert.equal(patched.updatedAt, '2026-10-16T00:00:00.000Z')
   assert.equal(patched.createdAt, stored.createdAt)
   assert.equal(patched.id, stored.id)
@@ -284,6 +365,7 @@ test('a patch may not change identity or provenance', () => {
 
 test('a patch is validated as strictly as a create', () => {
   rejects(() => applyPatch(stored, { priority: 'later' }, {}, AT), 'priority')
+  rejects(() => applyPatch(stored, { status: 'later' }, {}, AT), 'status')
 })
 
 test('a patch may clear the content of an item its title names', () => {

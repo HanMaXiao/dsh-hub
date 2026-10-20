@@ -58,6 +58,11 @@ available to a `dsh.client` bundle. The only bridge is a **Typert Remote**:
   any hand-written Remote in the wild (this one was written against
   `dsh-prompt-optimize`'s `remote.js`) verbatim in shape, on a hand-built
   `{ private, static, name, addInitializer }` context.
+- The service publishes **seven** methods: four over items (`list`, `create`,
+  `update`, `delete`) and three over the **status definitions** (§5.1)
+  (`createStatus`, `updateStatus`, `deleteStatus`). The status definitions are
+  durable bytes, so they are the Host's, exactly like an item — the Client asks
+  for them over the same bridge rather than keeping a second copy.
 - `HubRemote` declares `static inject = ['hub-store']`, and that is load bearing
   rather than decorative: `ctx.provide()` registers inside `ctx.fiber.effect()`,
   and `ctx.get()` reports a service whose fiber is not yet ACTIVE as absent, so
@@ -115,6 +120,10 @@ available to a `dsh.client` bundle. The only bridge is a **Typert Remote**:
   `path.resolve`d.
 - One JSON document, `<dataDir>/store.json`. Write via temp file + rename so a
   crash mid-write cannot truncate the store.
+- The document is `{ version, items, statuses }`: the items, and the **status
+  definitions** the TODO list is framed by (§5.1). A document written before
+  `statuses` existed reads as one carrying the built-in definitions, so the
+  addition is additive and needs no schema bump.
 - Schema version field. Read a missing file as an empty store; read an
   unreadable or malformed one as a **loud failure** naming the path — never
   silently reset the user's data.
@@ -130,7 +139,7 @@ available to a `dsh.client` bundle. The only bridge is a **Typert Remote**:
 ## 5. Data model
 
 ```
-TODO   { id, kind:'todo', title, description, category, priority, done,
+TODO   { id, kind:'todo', title, description, category, priority, status,
          completedAt, attachments:[{name,mime,size,dataUrl}], note,
          createdAt, updatedAt }
 NOTE   { id, kind:'note',  title, text, images:[{name,mime,size,dataUrl}],
@@ -139,18 +148,46 @@ PROMPT { id, kind:'prompt',title, text, images:[{name,mime,size,dataUrl}],
          createdAt, updatedAt }
 ```
 
-`priority` is one of `low | normal | high | urgent`. `done` is a boolean.
+`priority` is one of `low | normal | high | urgent`. `status` is the id of one
+of the status definitions (§5.1).
+
+**`status` replaced `done`, and the boolean is gone.** A TODO's completion used
+to be one bit, which is a shape the panel can show but not one a person can
+work with: there is no "in progress" and no "on hold", so a task that is
+blocked looks exactly like a task nobody started. `status` names one of the
+definitions the user curates, and the definitions carry the colour the badge
+is painted in. A stored item therefore has **one** completion fact, and the
+"finished or not" question is answered by the status definition rather than by
+a second field that could disagree with it.
+
+The migration is total and lossless in both directions. An item written before
+`status` existed carries `done` instead: `done: true` reads as the terminal
+status named `done`, `done: false` reads as the default status, and the
+boolean is dropped from the stored shape on the next write. A patch carrying
+`done` and no `status` — an older Client — is mapped the same way, so a stale
+panel still writes a completion rather than silently dropping it. An unknown
+status id is **rejected** with a message naming `status`, on the same terms as
+an unknown `kind` or `priority`: there is no defensible default for a status
+nobody defined.
 
 **`completedAt` is an ISO timestamp owned by the Host, and it is derived from
-`done` rather than accepted from a patch.** Finishing a TODO stamps it, reopening
-clears it, and a patch that touches neither leaves it alone — so editing a
-finished task does not restamp it and jump it to the top of the finished list.
-An unfinished TODO carries `''` however it arrived, because a stamp on an open
-task would order it by a moment that has not happened. Like `title` it is
-additive — a document written before it existed reads as finished-at-unknown —
-so it needs **no schema bump**, and it belongs in the §5 key list the Client
-checks, which is what makes an older Host say so instead of dropping the field.
-A TODO created already `done` completes as it was created.
+the status rather than accepted from a patch.** A TODO is *finished* when the
+status it carries is **terminal** (§5.1). Entering a terminal status stamps
+it, leaving one clears it, and a patch that touches neither leaves it alone —
+so editing a finished task does not restamp it and jump it to the top of the
+finished list. A TODO in a non-terminal status carries `''` however it
+arrived, because a stamp on an open task would order it by a moment that has
+not happened. Like `title` it is additive — a document written before it
+existed reads as finished-at-unknown — so it needs **no schema bump**, and it
+belongs in the §5 key list the Client checks, which is what makes an older Host
+say so instead of dropping the field. A TODO created already in a terminal
+status completes as it was created.
+
+Changing a status's terminal flag re-stamps the items carrying it: an item
+that has just become finished and carries no stamp gets one, and an item that
+is no longer finished loses it. A definition the user retires as "finished"
+would otherwise leave its items in the finished log forever, ordered by a
+moment that no longer means anything.
 
 **`title` is optional and stored, not derived.** It is trimmed, and an absent or
 blank one is stored as `''` — a document written before the field existed reads
@@ -184,6 +221,50 @@ content are both blank, are the three rejections that fire on a
 well-formed-looking payload, because none of the three has a defensible
 default.
 
+### 5.1 The status enum
+
+The completion field is a **single-select over a list the user curates** — a
+Feishu-style 完成状态 column rather than a checkbox. The definitions are
+durable bytes and live beside the items in the same document:
+
+```
+STATUS { id, label, labelKey, tone, done }
+```
+
+| field | meaning |
+|---|---|
+| `id` | unique, non-empty. The built-ins are `pending` `doing` `done` `failed` `onhold` `cancelled`; a new one is minted by the Host. |
+| `label` | the user's own name for it, trimmed. May be empty when `labelKey` supplies the text. |
+| `labelKey` | a locale key. The Client renders `labelKey ? translate(labelKey) : label`. |
+| `tone` | `neutral` `info` `brand` `success` `warn` `danger` `muted` — which pair of design tokens the badge is painted in (§8.3). |
+| `done` | **terminal**: an item in this status counts as finished (§6.1). |
+
+The built-ins, in the order the panel offers them:
+
+| id | text | tone | terminal |
+|---|---|---|---|
+| `pending` | 待处理 | `neutral` | no |
+| `doing` | 处理中 | `info` | no |
+| `done` | 已完成 | `success` | yes |
+| `failed` | 处理失败 | `danger` | no |
+| `onhold` | 暂时搁置 | `warn` | no |
+| `cancelled` | 已取消 | `muted` | yes |
+
+**The definitions are editable, and the user owns them.** Adding, renaming,
+re-colouring, re-ordering and deleting a status is a first-class operation, so
+the three status methods on the Remote (§3) are the whole of it. A definition
+the user renames gives up its `labelKey` and keeps its own text; a definition
+the user never renames follows the application's language. The `done` flag is
+the user's too: a definition can be retired as "finished" and its items follow
+it out of the finished log.
+
+Two refusals keep the list usable. The **last** definition cannot be deleted,
+because a TODO with no status has nowhere to sit. A definition that items
+still carry cannot be deleted either, and the message says how many items are
+in the way — silently moving them to another status would be a data change the
+user did not ask for. The status a new TODO starts in is the one named
+`pending`, or the first definition when the user has retired that one.
+
 ## 6. Sort — from 图一
 
 Obsidian's sort menu: **one field + one direction + optional grouping**, each
@@ -209,10 +290,12 @@ small→large, priority low→high. Descending inverts.
 **Grouping.** `分组依据`: TODO → `无 / 类别 / 优先级`; Note & Prompt →
 `无 / 含图片 / 纯文字`.
 
-Obsidian's `完成状态` is **dropped from the TODO menu**: completion is no longer
-something a menu arranges, it is the frame the list is built in — see *Regions*
-below. Offering it would put a group header inside a region that is already one
-completion state, which says the same thing twice.
+Obsidian's `完成状态` is **not offered in the TODO menu**: the panel's own
+completion enum (§5.1) is the frame the list is built in — see *Regions* below,
+where every status is a region of its own — and a status is changed **on the
+item**, one click away, rather than through a menu that arranges it. A
+grouping choice would put a status header inside a region that is already named
+by a status, and would say the same thing twice.
 
 **Tiebreak.** Every comparator ends with `createdAt` then `id` ascending, so
 equal keys never reorder between renders.
@@ -223,32 +306,49 @@ denormalised size. The title counts because it is stored bytes like any other.
 
 ### 6.1 Regions
 
-A TODO is **open or finished**, and the two are never one list. The unfinished
-half answers "what is left"; the finished half is a log of what was done. One
-list sorted by whatever was picked buries an unfinished task among finished ones
-and shows neither half whole.
+**A TODO's regions are its statuses.** One region per status definition, in the
+order the user curates them, each holding the items filed under that status.
+
+The list used to be split into two hard-coded halves — unfinished above
+finished — because one bit was all the model had. The status enum is
+finer-grained than that, and the old frame could not hold it: "in progress"
+and "on hold" are both unfinished, and filing them under one header says the
+same thing twice, while a task that failed and a task nobody started look
+alike from every angle. The region per status is what the enum was for.
+
+The **terminal flag** (§5.1) no longer decides *which* region an item is in —
+the status does that. It decides what a region *orders* by.
 
 - The split runs **before** search, filter, sort and grouping, so all four still
   apply *inside* each region rather than across the seam. Choosing `类别` groups
-  each half by category.
-- **The unfinished region follows the sort menu.** The finished region orders by
-  `completedAt` descending — a log whose newest entry is not at the top is not a
-  log — whatever the menu says. The menu is not contradicted quietly: it is the
-  finished region that overrides, and `completedAt` is deliberately not one of
-  the offered fields.
+  each region by category.
+- **A non-terminal region follows the sort menu. A terminal one orders by
+  `completedAt` descending** — a log whose newest entry is not at the top is not
+  a log — whatever the menu says. The menu is not contradicted quietly: it is
+  the terminal region that overrides, and `completedAt` is deliberately not one
+  of the offered fields.
 - A region with nothing in it is **not rendered at all**, so a filter that hides
-  one side leaves no empty header behind, and the finished region appears at the
-  moment there is something to put in it.
-- Both regions start **folded**, showing their label and count. The counts are
+  a status leaves no empty header behind, and a region appears at the moment
+  there is something to put in it.
+- A TODO whose status **no definition carries** — a Host that predates the
+  enum, or a definition the user retired — is in no region at all. It is filed
+  in **one unlabelled region** instead, because the alternative is a panel
+  showing an empty list over a store full of items. The skew notice is what
+  says why the list looks like that.
+- Every region starts **folded**, showing its label and count. The counts are
   the point of the split, and a list that opens itself is the mixing it
-  replaces. The choice is a presentation one, so it is persisted like `view`.
-- A region **opens itself when something lands in it** — a finished task, or a
-  new one. A task that moves while its region is shut has moved invisibly: the
-  count would move and nothing else would, which reads as a miscount rather than
-  as a task finishing.
+  replaces. The choice is a presentation one, so it is persisted like `view` —
+  and because the regions are a list the user curates, the persisted state is a
+  **map keyed by status id**, not a pair of fixed keys.
+- A region **opens itself when something lands in it** — a task that changes
+  status, or a new one. A task that moves while its region is shut has moved
+  invisibly: the count would move and nothing else would, which reads as a
+  miscount rather than as a task changing state.
+- A region wears its status's **dot and name**, the same dot the item's badge
+  carries, so the header and the items under it read as one thing.
 - A folded region is `visibility: hidden` as well as collapsed, so its items are
   not left focusable and still announced.
-- Note and Prompt have no `done`, so they render as **one unlabelled region**
+- Note and Prompt have no status, so they render as **one unlabelled region**
   with no header and nothing to fold.
 
 ## 7. Client module — ONE file
@@ -278,15 +378,20 @@ not optional.
 - **Tab bar**: floating capsule, bottom-centred, three options.
 - **Modals**: create, delete-confirm, and a detail modal whose top-right holds
   a copy button and a close button.
-- **Completion lives on the item.** A TODO carries a checkbox at the trailing
-  end of its card title row and of its list row, and the create and edit forms
-  carry no completion control — a save must leave completion exactly as the
-  checkbox left it. Reaching it through the detail dialog and the form's Confirm
-  is four activations to flip one boolean.
+- **Completion lives on the item.** A TODO carries a **status badge** at the
+  trailing end of its card title row and of its list row (§8.3), and the create
+  and edit forms carry no completion control — a save must leave the status
+  exactly as the badge left it. Reaching it through the detail dialog and the
+  form's Confirm is four activations to change one field.
+- **The status enum is editable.** A popover on the badge lists the definitions
+  and a management dialog adds, renames, re-colours, re-orders and deletes
+  them (§5.1). The definitions are durable bytes, so every one of those is a
+  write through the Remote.
 - **Views**: grid and list, switchable, persisted, each with its own loading
   state.
-- **Regions**: a TODO list is two collapsible regions, unfinished above finished
-  (§6.1), each folded to its label and count until it has something to show.
+- **Regions**: a TODO list is one collapsible region per status (§6.1), in the
+  order the user curates them, each folded to its label and count until it has
+  something to show.
 - **Grid**: `repeat(auto-fill, minmax(min(100%, var(--hub-card-min)), 1fr))`
   plus a `ResizeObserver`, so the n×m layout follows the window.
 - **Theme**: `ctx.get('theme')?.setTheme('light' | 'dark' | 'system')`
@@ -345,6 +450,38 @@ The stagger rides the keys rather than a timer: React mounts a new node only
 when the content really changed, so a sort that merely reorders what is already
 on screen stays still. `prefers-reduced-motion: reduce` removes every animation
 and transition in the panel; no state depends on one to be legible.
+
+### 8.3 The status badge
+
+A status is a **colour**, not a label. The badge is the one place in the panel
+where colour carries meaning rather than decoration, so it is the one place
+allowed to mix two colours.
+
+- **Two tokens, one mix.** A status's `tone` names a *pair* of design tokens
+  (`--hub-status-a` and `--hub-status-b`): a wash of the first is laid across
+  the badge from the left, a wash of the second from the right, and the two
+  **overlap in the middle**, so the middle is a genuine mixture rather than a
+  hard edge between two flat colours. A single flat fill would read as one
+  colour with a border; the mix is what says "this is a state".
+- **The mix is masked, not cut.** Each wash is masked by a radial gradient that
+  fades it out towards the other side, so the two bleed into each other instead
+  of meeting at a seam. The mask carries **alpha only**, so the opaque end of
+  the gradient may be any opaque token — no literal colour is needed, and none
+  may be written.
+- **The pane is frosted.** The badge carries `backdrop-filter: blur() saturate()`,
+  so the row's own fill shows through it: the badge sits *on* the card rather
+  than *over* it, and it picks up the plane's depth instead of floating free.
+  Two more things make it read as a pane rather than as a fill: a bright rim
+  along its top edge and a soft shadow under it. A blurred surface with no
+  edge is just a smudge.
+- **The dot is the same mix at a smaller scale**, so the badge reads at a glance
+  and its text still reads when the row is scanned.
+- The badge is a **control on the item**, so it may carry a fill of its own —
+  the rule that cards carry no fill is about the *card*, not about what sits on
+  it.
+- Every colour is a `--dsw-alias-*` token or a `color-mix()` of tokens. The
+  tones map to token pairs in the Client's stylesheet, and the mapping is the
+  only place a tone becomes a colour.
 
 ## 9. Docking
 

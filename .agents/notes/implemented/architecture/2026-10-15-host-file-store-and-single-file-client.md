@@ -37,8 +37,8 @@ truncate the document. Reads distinguish three states deliberately: a missing
 file is an empty store, an unreadable or malformed file is a **loud failure
 naming the path**, and only the first is allowed to look like nothing having
 happened. The document carries a schema version field. Every write is
-validated on the Host, which rejects an unknown `kind` or `priority` with a
-message naming the offending field.
+validated on the Host, which rejects an unknown `kind`, `priority` or `status`
+with a message naming the offending field.
 
 Images and files are stored inline as base64 data URLs inside that one
 document. `maxImageBytes` is a `Config` field (default 2 MiB) measured on the

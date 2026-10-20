@@ -42,6 +42,11 @@ function openFails(dir, maxImageBytes) {
   return caught
 }
 
+/** The document a store wrote. */
+function readDocument(dir) {
+  return JSON.parse(readFileSync(path.join(dir, STORE_FILENAME), 'utf8'))
+}
+
 // --- dataDir resolution ----------------------------------------------------
 //
 // The fixtures are built with `path.join`, never with literal separators:
@@ -84,13 +89,23 @@ test('a missing file is an empty store, and no file is invented', () => {
   assert.equal(existsSync(path.join(dir, STORE_FILENAME)), false)
 })
 
+test('a store starts with the built-in statuses', () => {
+  const dir = tempDir()
+  const store = open(dir)
+  assert.deepEqual(store.statuses().map(status => status.id), [
+    'pending', 'doing', 'done', 'failed', 'onhold', 'cancelled',
+  ])
+  assert.equal(store.statuses()[2].done, true, 'the `done` definition is the terminal one')
+})
+
 test('a created item lands in store.json under the schema version', () => {
   const dir = tempDir()
   const created = open(dir).create({ kind: 'note', text: 'first' })
-  const document = JSON.parse(readFileSync(path.join(dir, STORE_FILENAME), 'utf8'))
+  const document = readDocument(dir)
   assert.equal(document.version, SCHEMA_VERSION)
   assert.equal(document.items.length, 1)
   assert.deepEqual(document.items[0], created)
+  assert.equal(document.statuses.length, 6, 'the definitions are persisted beside the items')
 })
 
 test('a reopened store sees what the previous one wrote', () => {
@@ -128,6 +143,14 @@ test('list hands out copies, so a caller cannot edit the store by mutating a res
   assert.equal(store.list()[0].text, 'original')
 })
 
+test('statuses hands out copies too', () => {
+  const dir = tempDir()
+  const store = open(dir)
+  const listed = store.statuses()
+  listed[0].label = 'tampered'
+  assert.equal(store.statuses()[0].label, '')
+})
+
 test('create returns a copy too', () => {
   const dir = tempDir()
   const store = open(dir)
@@ -140,8 +163,8 @@ test('update and remove return the item as it is stored', () => {
   const dir = tempDir()
   const store = open(dir)
   const created = store.create({ kind: 'todo', description: 'ship it', priority: 'low' })
-  const updated = store.update(created.id, { done: true, priority: 'high' })
-  assert.equal(updated.done, true)
+  const updated = store.update(created.id, { status: 'done', priority: 'high' })
+  assert.equal(updated.status, 'done')
   assert.equal(updated.priority, 'high')
   assert.equal(updated.createdAt, created.createdAt)
   // `updatedAt` is wall-clock time, so a create and an update inside the same
@@ -165,6 +188,124 @@ test('the image ceiling is read from the constructor, not assumed', () => {
   // The same image under a lower ceiling must not retroactively brick the file.
   assert.equal(open(dir, 1024).list()[0].attachments[0].size, 4096)
   assert.throws(() => open(dir, 1024).create({ kind: 'todo', description: 'too big', attachments: [image] }), /attachments\[0\]\.dataUrl/)
+})
+
+// --- the status definitions ------------------------------------------------
+
+test('a status is created with the Host\'s id, a default tone and no terminal flag', () => {
+  const dir = tempDir()
+  const store = open(dir)
+  const created = store.createStatus({ label: 'Blocked' })
+  assert.equal(created.label, 'Blocked')
+  assert.equal(created.tone, 'neutral')
+  assert.equal(created.done, false)
+  assert.equal(typeof created.id, 'string')
+  assert.ok(created.id.length > 0)
+  assert.equal(store.statuses().length, 7)
+  assert.equal(readDocument(dir).statuses.length, 7, 'the definition is persisted')
+})
+
+test('a status must name itself', () => {
+  const dir = tempDir()
+  const store = open(dir)
+  assert.throws(() => store.createStatus({ label: '  ' }), /label/)
+  assert.throws(() => store.createStatus({}), /label/)
+  assert.equal(store.statuses().length, 6, 'a refused status is not appended')
+})
+
+test('a renamed status gives up its locale key and keeps its own text', () => {
+  const dir = tempDir()
+  const store = open(dir)
+  const renamed = store.updateStatus('pending', { label: 'To do' })
+  assert.equal(renamed.label, 'To do')
+  assert.equal(renamed.labelKey, '', 'a definition the user renamed follows their language, not the application\'s')
+  assert.equal(renamed.tone, 'neutral', 'the fields the patch did not mention are left alone')
+})
+
+test('a status can be re-toned and re-ordered', () => {
+  const dir = tempDir()
+  const store = open(dir)
+  assert.equal(store.updateStatus('failed', { tone: 'warn' }).tone, 'warn')
+  store.updateStatus('doing', { order: 0 })
+  assert.deepEqual(store.statuses().map(status => status.id), [
+    'doing', 'pending', 'done', 'failed', 'onhold', 'cancelled',
+  ])
+  assert.deepEqual(readDocument(dir).statuses.map(status => status.id), store.statuses().map(status => status.id),
+    'the new order is persisted')
+})
+
+test('a status can be deleted when nothing carries it', () => {
+  const dir = tempDir()
+  const store = open(dir)
+  const removed = store.removeStatus('failed')
+  assert.equal(removed.id, 'failed')
+  assert.deepEqual(store.statuses().map(status => status.id), [
+    'pending', 'doing', 'done', 'onhold', 'cancelled',
+  ])
+  assert.equal(readDocument(dir).statuses.length, 5)
+})
+
+test('the last status cannot be deleted', () => {
+  const dir = tempDir()
+  const store = open(dir)
+  for (const id of ['pending', 'doing', 'done', 'failed', 'onhold']) store.removeStatus(id)
+  assert.throws(() => store.removeStatus('cancelled'), error => {
+    assert.ok(error instanceof HubStoreError)
+    assert.equal(error.reason, 'last-status')
+    return true
+  })
+  assert.equal(store.statuses().length, 1)
+})
+
+test('a status that items still carry cannot be deleted, and the message says how many', () => {
+  const dir = tempDir()
+  const store = open(dir)
+  store.create({ kind: 'todo', description: 'one' })
+  store.create({ kind: 'todo', description: 'two' })
+  assert.throws(() => store.removeStatus('pending'), error => {
+    assert.ok(error instanceof HubStoreError)
+    assert.equal(error.reason, 'in-use')
+    assert.match(error.message, /2 items/)
+    return true
+  })
+  assert.equal(store.statuses().length, 6, 'a refused removal leaves the list alone')
+})
+
+test('flipping the terminal flag re-stamps the items that carry the status', () => {
+  const dir = tempDir()
+  const store = open(dir)
+  const at = new Date('2026-10-15T02:04:15.123Z')
+  const item = store.create({ kind: 'todo', description: 'one' }, at)
+  assert.equal(item.completedAt, '', 'the status is not terminal to begin with')
+
+  store.updateStatus('pending', { done: true }, at)
+  assert.equal(store.list()[0].completedAt, at.toISOString(), 'an item that has just become finished gets a stamp')
+
+  store.updateStatus('pending', { done: false }, at)
+  assert.equal(store.list()[0].completedAt, '', 'an item that is no longer finished loses the stamp')
+})
+
+test('the items and the definition are written in the same document', () => {
+  const dir = tempDir()
+  const store = open(dir)
+  const at = new Date('2026-10-15T02:04:15.123Z')
+  store.create({ kind: 'todo', description: 'one' }, at)
+  store.updateStatus('pending', { done: true }, at)
+  const document = readDocument(dir)
+  assert.equal(document.items[0].completedAt, at.toISOString())
+  assert.equal(document.statuses.find(status => status.id === 'pending').done, true)
+})
+
+test('a status id that is not there names the id', () => {
+  const dir = tempDir()
+  const store = open(dir)
+  for (const call of [() => store.updateStatus('missing', { tone: 'warn' }), () => store.removeStatus('missing')]) {
+    assert.throws(call, error => {
+      assert.equal(error.reason, 'not-found')
+      assert.match(error.message, /"missing"/)
+      return true
+    })
+  }
 })
 
 // --- corruption must be loud ----------------------------------------------
@@ -218,6 +359,47 @@ test('a document whose items are not an array stops the mount', () => {
   assert.equal(openFails(dir).reason, 'corrupt')
 })
 
+test('a document written before the status list existed reads as one carrying the built-ins', () => {
+  // The list is additive, so no schema bump is owed: the definitions stand in
+  // until the next write persists them.
+  const dir = tempDir()
+  writeFileSync(path.join(dir, STORE_FILENAME), JSON.stringify({
+    version: SCHEMA_VERSION,
+    items: [{ kind: 'todo', description: 'x', done: true }],
+  }), 'utf8')
+  const store = open(dir)
+  assert.deepEqual(store.statuses().map(status => status.id), [
+    'pending', 'doing', 'done', 'failed', 'onhold', 'cancelled',
+  ])
+  assert.equal(store.list()[0].status, 'done', 'the item written before the enum reads as the status its boolean meant')
+  store.create({ kind: 'note', text: 'later' })
+  assert.equal(readDocument(dir).statuses.length, 6, 'the next write persists the definitions')
+})
+
+test('a document whose statuses are not an array stops the mount and names the path', () => {
+  const dir = tempDir()
+  writeFileSync(path.join(dir, STORE_FILENAME), JSON.stringify({
+    version: SCHEMA_VERSION,
+    items: [],
+    statuses: {},
+  }), 'utf8')
+  const error = openFails(dir)
+  assert.equal(error.reason, 'corrupt')
+  assert.match(error.message, /statuses/)
+})
+
+test('a status that does not match the model stops the mount and names the field', () => {
+  const dir = tempDir()
+  writeFileSync(path.join(dir, STORE_FILENAME), JSON.stringify({
+    version: SCHEMA_VERSION,
+    items: [],
+    statuses: [{ id: 'x', label: 'X', labelKey: '', tone: 'rainbow', done: false }],
+  }), 'utf8')
+  const error = openFails(dir)
+  assert.equal(error.reason, 'corrupt')
+  assert.match(error.message, /tone/)
+})
+
 test('a rejected store is never replaced by an empty one', () => {
   const dir = tempDir()
   const file = path.join(dir, STORE_FILENAME)
@@ -231,7 +413,7 @@ test('a rejected store is never replaced by an empty one', () => {
 test('updating or removing an id that is not there names the id', () => {
   const dir = tempDir()
   const store = open(dir)
-  for (const call of [() => store.update('missing', { done: true }), () => store.remove('missing')]) {
+  for (const call of [() => store.update('missing', { status: 'done' }), () => store.remove('missing')]) {
     assert.throws(call, error => {
       assert.equal(error.reason, 'not-found')
       assert.match(error.message, /"missing"/)

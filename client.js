@@ -82,6 +82,9 @@ window.__ModuleLoader__.load({
       'action.dock': '停靠位置',
       'action.attach': '添加附件',
       'action.openPanel': '展开 Hub',
+      'action.add': '添加',
+      'action.moveUp': '上移',
+      'action.moveDown': '下移',
       'tab.todo': 'TODO',
       'tab.note': 'Note',
       'tab.prompt': 'Prompt',
@@ -107,8 +110,6 @@ window.__ModuleLoader__.load({
       'group.priority': '优先级',
       'group.withImages': '含图片',
       'group.textOnly': '纯文字',
-      'group.done.yes': '已完成',
-      'group.done.no': '未完成',
       'group.uncategorized': '未分类',
       'filter.by': '过滤',
       'filter.all': '全部',
@@ -121,10 +122,30 @@ window.__ModuleLoader__.load({
       'field.title': '标题',
       'field.category': '类别',
       'field.priority': '标记',
-      'field.done': '已完成',
       'field.note': '备注',
       'field.files': '附件',
       'field.images': '图片',
+      'field.status': '完成状态',
+      'status.pending': '待处理',
+      'status.doing': '处理中',
+      'status.done': '已完成',
+      'status.failed': '处理失败',
+      'status.onhold': '暂时搁置',
+      'status.cancelled': '已取消',
+      'status.manage': '管理状态',
+      'status.manager': '状态管理',
+      'status.manager.hint': '这是一份你自己维护的清单：改名、换颜色、调整顺序都可以。勾上「计入已完成」的状态，它的条目会落进已完成那一区。',
+      'status.name': '名称',
+      'status.newName': '状态名称',
+      'status.terminal': '计入已完成',
+      'status.tone': '颜色',
+      'tone.neutral': '中性',
+      'tone.info': '信息',
+      'tone.brand': '品牌',
+      'tone.success': '成功',
+      'tone.warn': '警告',
+      'tone.danger': '危险',
+      'tone.muted': '弱化',
       'priority.low': '低',
       'priority.normal': '中',
       'priority.high': '高',
@@ -138,6 +159,8 @@ window.__ModuleLoader__.load({
       'modal.detail': '条目详情',
       'modal.delete': '删除条目',
       'modal.delete.body': '删除后无法恢复。',
+      'modal.deleteStatus': '删除状态',
+      'modal.deleteStatus.body': '删除后，这个状态会从列表中消失。',
       'state.empty': '还没有条目',
       'state.emptySearch': '没有匹配的条目',
       'state.untitled': '未命名',
@@ -172,6 +195,9 @@ window.__ModuleLoader__.load({
       'action.dock': 'Dock edge',
       'action.attach': 'Add attachment',
       'action.openPanel': 'Open Hub',
+      'action.add': 'Add',
+      'action.moveUp': 'Move up',
+      'action.moveDown': 'Move down',
       'tab.todo': 'TODO',
       'tab.note': 'Note',
       'tab.prompt': 'Prompt',
@@ -197,8 +223,6 @@ window.__ModuleLoader__.load({
       'group.priority': 'Priority',
       'group.withImages': 'With images',
       'group.textOnly': 'Text only',
-      'group.done.yes': 'Done',
-      'group.done.no': 'Not done',
       'group.uncategorized': 'Uncategorized',
       'filter.by': 'Filter',
       'filter.all': 'All',
@@ -211,10 +235,30 @@ window.__ModuleLoader__.load({
       'field.title': 'Title',
       'field.category': 'Category',
       'field.priority': 'Flag',
-      'field.done': 'Done',
       'field.note': 'Note',
       'field.files': 'Attachments',
       'field.images': 'Images',
+      'field.status': 'Status',
+      'status.pending': 'Pending',
+      'status.doing': 'In progress',
+      'status.done': 'Done',
+      'status.failed': 'Failed',
+      'status.onhold': 'On hold',
+      'status.cancelled': 'Cancelled',
+      'status.manage': 'Manage statuses',
+      'status.manager': 'Manage statuses',
+      'status.manager.hint': 'A status is an entry\'s completion state. A status marked as finished puts its entries in the finished region.',
+      'status.name': 'Name',
+      'status.newName': 'Status name',
+      'status.terminal': 'Counts as finished',
+      'status.tone': 'Colour',
+      'tone.neutral': 'Neutral',
+      'tone.info': 'Info',
+      'tone.brand': 'Brand',
+      'tone.success': 'Success',
+      'tone.warn': 'Warning',
+      'tone.danger': 'Danger',
+      'tone.muted': 'Muted',
       'priority.low': 'Low',
       'priority.normal': 'Normal',
       'priority.high': 'High',
@@ -228,6 +272,8 @@ window.__ModuleLoader__.load({
       'modal.detail': 'Entry detail',
       'modal.delete': 'Delete entry',
       'modal.delete.body': 'This cannot be undone.',
+      'modal.deleteStatus': 'Delete status',
+      'modal.deleteStatus.body': 'This removes the status from the list.',
       'state.empty': 'No entries yet',
       'state.emptySearch': 'No matching entries',
       'state.untitled': 'Untitled',
@@ -312,9 +358,12 @@ window.__ModuleLoader__.load({
         { t: 'circle', a: { cx: 12, cy: 12, r: 8.5 } },
         { t: 'path', a: { d: 'M8.2 12.2l2.6 2.6 5-5.2' } },
       ],
-      open: [
-        { t: 'circle', a: { cx: 12, cy: 12, r: 8.5 } },
-        { t: 'path', a: { d: 'M12 7.5V12l3 2' } },
+      arrowUp: [{ t: 'path', a: { d: 'M12 19V5M6 11l6-6 6 6' } }],
+      arrowDown: [{ t: 'path', a: { d: 'M12 5v14M6 13l6 6 6-6' } }],
+      sliders: [
+        { t: 'path', a: { d: 'M4 8h9M17.5 8H20M4 16h3.5M12 16h8' } },
+        { t: 'circle', a: { cx: 15, cy: 8, r: 2.2 } },
+        { t: 'circle', a: { cx: 9.5, cy: 16, r: 2.2 } },
       ],
     }
 
@@ -362,6 +411,15 @@ window.__ModuleLoader__.load({
     /** Collapsed strip thickness and the width it grows to on hover. */
     const HANDLE_THICKNESS = 7
     const HANDLE_OPEN = 30
+
+    /**
+     * The tallest the status popover ever gets.
+     *
+     * The stylesheet and the placement share it: the popover flips above the
+     * badge when there is not this much room below it, so the two cannot
+     * disagree about how tall it is.
+     */
+    const POPOVER_MAX_HEIGHT = 320
 
     const STYLES = `
 /* ==========================================================================
@@ -569,6 +627,10 @@ window.__ModuleLoader__.load({
   border: 1px solid var(--dsw-alias-border-l3);
   box-shadow: 0 2px 8px var(--dsw-alias-bg-mask-2), 0 18px 44px var(--dsw-alias-bg-mask-2);
   transform-origin: var(--hub-origin, center);
+  /* The surface does not clip: the status popover is its own child and is
+     positioned against it, and a clip here would cut the popover off at the
+     panel's edge. The body scrolls on its own, so nothing else needed this. */
+  overflow: visible;
   /* Opens in step with the rail it grows out of (--hub-mid, 190ms). The panel
      answering a hover a third of a second later reads as the app hesitating
      rather than as motion. */
@@ -667,15 +729,30 @@ window.__ModuleLoader__.load({
 .hub-search::placeholder { color: var(--hub-ink-3); }
 .hub-search::-webkit-search-cancel-button { filter: grayscale(1) opacity(.6); }
 
-/* A one-line readout between the header and the list: how much is on screen,
-   and the field it is ordered by. */
+/* A one-line bar between the header and the list: how much is on screen, and
+   the control that says what it is ordered by. */
 .hub-meta {
   display: flex; align-items: center; gap: 8px;
   flex: 0 0 auto; height: 24px; padding: 0 var(--hub-gutter);
   color: var(--hub-ink-3); font-size: 10.5px; letter-spacing: .04em;
   border-bottom: 1px solid var(--hub-line);
 }
-.hub-meta-sort { margin-left: auto; display: inline-flex; align-items: center; gap: 4px; }
+/* The current sort, drawn as the control it is. The chevron turns with the
+   direction, so this has always read as a dropdown; the button chrome is reset
+   to the meta row's own type and ink rather than a second button style, and the
+   replies it gives are the hub-tool ones at text size. Note that this block is
+   a template literal: a backtick in a comment ends the stylesheet. */
+.hub-meta-sort {
+  display: inline-flex; align-items: center; gap: 4px;
+  margin: 0 0 0 auto; padding: 2px 5px;
+  border: none; border-radius: 6px;
+  background: transparent; color: inherit;
+  font: inherit; letter-spacing: inherit; cursor: pointer;
+  transition: background var(--hub-fast) ease, color var(--hub-fast) ease;
+}
+.hub-meta-sort:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--hub-ink); }
+.hub-meta-sort:active { transform: scale(.97); }
+.hub-meta-sort[data-on="true"] { background: var(--dsw-alias-interactive-bg-active); color: var(--hub-ink); }
 .hub-meta-sort svg { transition: transform var(--hub-mid) var(--hub-ease); }
 .hub-meta-sort[data-direction="desc"] svg { transform: rotate(180deg); }
 
@@ -777,10 +854,12 @@ window.__ModuleLoader__.load({
 .hub-group-count { color: var(--hub-ink-3); letter-spacing: 0; }
 
 /* --------------------------------------------------------------------------
-   Regions. A TODO is open or finished, and the two are separate lists rather
-   than one list sorted by whatever the user picked: an unfinished task hidden
-   among finished ones is the whole problem. Note and Prompt have no done flag
-   and render as a single unlabelled region, so nothing here shows for them.
+   Regions. A TODO's regions are its statuses, one region each: a task in
+   progress and a task on hold are both unfinished, and filing them under one
+   header says the same thing twice. The status list is the frame, and the
+   order the user curates it in is the order the regions appear in. Note and
+   Prompt have no status and render as a single unlabelled region, so nothing
+   here shows for them.
 
    The body collapses on grid-template-rows 0fr -> 1fr, which is the one height
    transition that measures its own content — max-height needs a number the
@@ -802,6 +881,10 @@ window.__ModuleLoader__.load({
 .hub-region:first-child .hub-region-head { margin-top: 4px; }
 .hub-region-head:hover { background: var(--dsw-alias-interactive-bg-hover); color: var(--hub-ink); }
 .hub-region-head:active { transform: scale(.995); }
+/* The region's dot is the status's own dot, at the header's scale: the header
+   and the badges under it are the same thing, so they wear the same colour. */
+.hub-region-dot { display: flex; flex: 0 0 auto; }
+.hub-region-dot .hub-status-dot { width: 8px; height: 8px; }
 .hub-region-label { font-weight: 500; }
 .hub-region-chevron {
   display: flex; flex: 0 0 auto; margin-left: auto; color: var(--hub-ink-3);
@@ -879,14 +962,191 @@ window.__ModuleLoader__.load({
 .hub-card[data-done="true"]::before, .hub-row[data-done="true"]::before {
   transform: scaleY(1); background: var(--hub-line-strong);
 }
-/* Completion is edited where the item already is: a checkbox at the trailing
-   end of the card's title row, and of the row itself. Always visible, and
-   outside the hover cluster — reaching it through the detail dialog and the
-   edit form is four activations to flip one boolean. */
-.hub-done-check {
-  flex: 0 0 auto; width: 14px; height: 14px; margin: 0;
-  accent-color: var(--hub-accent); cursor: pointer;
+/* --------------------------------------------------------------------------
+   The status badge (DESIGN.md §8.3).
+
+   A status is a colour rather than a label, so the badge is the one place in
+   the panel allowed to mix two colours: a wash of the first token is laid in
+   from the left, a wash of the second from the right, and the two overlap in
+   the middle. Each wash is masked by a radial gradient that fades it towards
+   the other side, so the two bleed into each other instead of meeting at a
+   seam. The mask carries alpha only, so its opaque end may be any opaque
+   token — the ink — and no literal colour is needed anywhere.
+
+   The pane is frosted, so the card's own fill shows through it: the badge sits
+   *on* the card rather than over it, and picks up the plane's depth instead of
+   floating free.
+   -------------------------------------------------------------------------- */
+.hub-status {
+  /* The pair of tokens a tone maps to; overridden per tone below. */
+  --hub-status-a: var(--dsw-alias-label-secondary);
+  --hub-status-b: var(--dsw-alias-border-l2);
+  /* How hard the washes are laid on. The dot is the same mix at a smaller
+     scale, so it is allowed to sit nearer full strength than the badge. */
+  --hub-status-strength: 34%;
+
+  position: relative;
+  display: inline-flex; align-items: center; gap: 5px;
+  flex: 0 0 auto;
+  height: 20px; padding: 0 8px;
+  border: 1px solid var(--hub-line); border-radius: 999px;
+  background: color-mix(in srgb, var(--dsw-alias-bg-layer-3) 48%, transparent);
+  backdrop-filter: blur(9px) saturate(150%);
+  -webkit-backdrop-filter: blur(9px) saturate(150%);
+  color: var(--hub-ink);
+  font: inherit; font-size: 10.5px; line-height: 1;
+  cursor: pointer; overflow: hidden;
+  /* The glass edge and the lift. The blur above frosts whatever is behind the
+     pane, and these two are what make it read as a pane rather than as a fill:
+     a bright rim along the top edge, and a shadow under it. */
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--hub-ink) 12%, transparent),
+    0 1px 2px color-mix(in srgb, var(--hub-ink) 16%, transparent);
+  transition: border-color var(--hub-fast) ease, transform var(--hub-fast) var(--hub-ease);
 }
+.hub-status:hover { border-color: var(--hub-line-strong); }
+.hub-status:active { transform: scale(.97); }
+/* The washes are painted over the pane's own content, so the label and the
+   dot are lifted above them. */
+.hub-status > * { position: relative; z-index: 1; }
+.hub-status-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.hub-status-dot {
+  --hub-status-strength: 92%;
+  position: relative;
+  display: block; flex: 0 0 auto;
+  width: 9px; height: 9px; border-radius: 50%;
+  overflow: hidden;
+}
+
+/* The two washes. Each is one of the tone's own tokens, faded out towards the
+   other side by a radial mask whose opaque end is the ink. */
+.hub-status::before, .hub-status-dot::before,
+.hub-status::after, .hub-status-dot::after {
+  content: '';
+  position: absolute; inset: 0; z-index: 0;
+  pointer-events: none;
+}
+.hub-status::before, .hub-status-dot::before {
+  background: color-mix(in srgb, var(--hub-status-a) var(--hub-status-strength), transparent);
+  -webkit-mask-image: radial-gradient(130% 160% at 0% 50%, var(--hub-ink) 0%, transparent 72%);
+  mask-image: radial-gradient(130% 160% at 0% 50%, var(--hub-ink) 0%, transparent 72%);
+}
+.hub-status::after, .hub-status-dot::after {
+  background: color-mix(in srgb, var(--hub-status-b) var(--hub-status-strength), transparent);
+  -webkit-mask-image: radial-gradient(130% 160% at 100% 50%, var(--hub-ink) 0%, transparent 72%);
+  mask-image: radial-gradient(130% 160% at 100% 50%, var(--hub-ink) 0%, transparent 72%);
+}
+
+/* The tone -> token pair mapping. This is the only place a tone becomes a
+   colour (DESIGN.md §8.3). */
+.hub-status[data-tone="neutral"],
+.hub-status-dot[data-tone="neutral"],
+.hub-tone-swatch[data-tone="neutral"] {
+  --hub-status-a: var(--dsw-alias-label-secondary);
+  --hub-status-b: var(--dsw-alias-border-l2);
+}
+.hub-status[data-tone="info"],
+.hub-status-dot[data-tone="info"],
+.hub-tone-swatch[data-tone="info"] {
+  --hub-status-a: var(--dsw-alias-state-business-primary);
+  --hub-status-b: var(--dsw-alias-label-primary-bluish);
+}
+.hub-status[data-tone="brand"],
+.hub-status-dot[data-tone="brand"],
+.hub-tone-swatch[data-tone="brand"] {
+  --hub-status-a: var(--dsw-alias-brand-primary);
+  --hub-status-b: var(--dsw-alias-label-primary-bluish);
+}
+.hub-status[data-tone="success"],
+.hub-status-dot[data-tone="success"],
+.hub-tone-swatch[data-tone="success"] {
+  --hub-status-a: var(--dsw-alias-state-success-primary);
+  --hub-status-b: var(--dsw-alias-state-success-secondary);
+}
+.hub-status[data-tone="warn"],
+.hub-status-dot[data-tone="warn"],
+.hub-tone-swatch[data-tone="warn"] {
+  --hub-status-a: var(--dsw-alias-state-warn-primary);
+  --hub-status-b: var(--dsw-alias-state-warn-secondary);
+}
+.hub-status[data-tone="danger"],
+.hub-status-dot[data-tone="danger"],
+.hub-tone-swatch[data-tone="danger"] {
+  --hub-status-a: var(--dsw-alias-state-error-primary);
+  --hub-status-b: var(--dsw-alias-state-error-secondary);
+}
+.hub-status[data-tone="muted"],
+.hub-status-dot[data-tone="muted"],
+.hub-tone-swatch[data-tone="muted"] {
+  --hub-status-a: var(--dsw-alias-state-idle-primary);
+  --hub-status-b: var(--dsw-alias-label-quaternary);
+}
+
+/* --------------------------------------------------------------------------
+   The status popover: the badge's own list, placed at the badge.
+   -------------------------------------------------------------------------- */
+.hub-popover {
+  position: absolute; z-index: 6;
+  min-width: 172px; max-width: 240px; max-height: min(52vh, ${POPOVER_MAX_HEIGHT}px); overflow: auto;
+  padding: 5px; border-radius: 10px;
+  border: 1px solid var(--hub-line-strong);
+  background: var(--hub-raised);
+  box-shadow: 0 2px 6px var(--dsw-alias-bg-mask-2), 0 14px 34px var(--dsw-alias-bg-mask-2);
+  transform-origin: top right;
+  animation: hubMenuIn var(--hub-fast) var(--hub-ease) both;
+}
+.hub-popover-sep { height: 1px; margin: 4px 3px; background: var(--hub-line); }
+
+/* --------------------------------------------------------------------------
+   The status manager: one row per definition, and a row that adds one.
+   -------------------------------------------------------------------------- */
+.hub-hint { color: var(--hub-ink-3); font-size: 11px; line-height: 1.5; }
+.hub-status-list { display: flex; flex-direction: column; gap: 5px; }
+.hub-status-block { display: flex; flex-direction: column; gap: 4px; }
+.hub-status-row {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 6px; border-radius: 8px;
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+.hub-status-row .hub-input { flex: 1 1 auto; min-width: 0; height: 24px; padding: 2px 7px; }
+.hub-status-row .hub-tool { width: 20px; height: 20px; }
+.hub-tool-danger:hover { color: var(--dsw-alias-state-error-primary); }
+.hub-tone-swatch {
+  display: inline-flex; align-items: center; justify-content: center;
+  flex: 0 0 auto; width: 20px; height: 20px; padding: 0;
+  border: 1px solid var(--hub-line-strong); border-radius: 50%;
+  background: transparent; color: var(--hub-status-a);
+  cursor: pointer;
+  transition: transform var(--hub-fast) var(--hub-ease);
+}
+.hub-tone-swatch:hover { transform: scale(1.08); }
+.hub-toggle {
+  display: inline-flex; align-items: center; justify-content: center;
+  flex: 0 0 auto; width: 22px; height: 18px; padding: 0;
+  border: 1px solid var(--hub-line-strong); border-radius: 999px;
+  background: var(--dsw-alias-interactive-bg-hover); color: var(--hub-ink-3);
+  cursor: pointer;
+  transition: background var(--hub-fast) ease, color var(--hub-fast) ease;
+}
+.hub-toggle[aria-checked="true"] {
+  background: var(--dsw-alias-interactive-bg-hover-accent);
+  color: var(--dsw-alias-brand-primary);
+}
+.hub-tone-picker {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 7px; border-radius: 8px;
+  border: 1px solid var(--hub-line-strong);
+  background: var(--hub-raised);
+  box-shadow: 0 2px 6px var(--dsw-alias-bg-mask-2);
+}
+.hub-status-add {
+  display: flex; align-items: center; gap: 6px;
+  margin-top: 2px; padding-top: 8px;
+  border-top: 1px solid var(--hub-line);
+}
+.hub-status-add .hub-input { flex: 1 1 auto; min-width: 0; }
+
 .hub-card-head { display: flex; align-items: center; gap: 6px; }
 .hub-card-head .hub-item-name { flex: 1 1 auto; min-width: 0; }
 
@@ -946,7 +1206,8 @@ window.__ModuleLoader__.load({
 .hub-chip[data-tone="normal"] { color: var(--hub-ink-2); }
 .hub-chip[data-tone="high"] { background: var(--dsw-alias-interactive-bg-hover-accent); color: var(--dsw-alias-brand-primary); }
 .hub-chip[data-tone="urgent"] { background: var(--dsw-alias-interactive-bg-hover-danger); color: var(--dsw-alias-state-error-primary); }
-.hub-chip[data-tone="done"] { color: var(--dsw-alias-state-success-primary); }
+/* The status tag carries its own colour in its dot, so it needs no tone rule of
+   its own — the dot is painted from the same two-token mix as the badge. */
 
 /* --------------------------------------------------------------------------
    Two skeletons, deliberately independent (DESIGN.md §8): the grid draws
@@ -1146,6 +1407,10 @@ window.__ModuleLoader__.load({
   border-radius: 6px;
 }
 .hub-card:focus-visible, .hub-row:focus-visible { border-radius: 8px; }
+/* The panel's focus ring is a rounded rectangle, which would square off the
+   controls that are round. */
+.hub-status:focus-visible, .hub-toggle:focus-visible { border-radius: 999px; }
+.hub-tone-swatch:focus-visible { border-radius: 50%; }
 .hub-root :focus:not(:focus-visible) { outline: none; }
 
 @keyframes hubRise {
@@ -1160,7 +1425,7 @@ window.__ModuleLoader__.load({
     animation: none !important;
     transition: none !important;
   }
-  .hub-card, .hub-row, .hub-scrim, .hub-modal, .hub-menu, .hub-surface, .hub-notice { opacity: 1; }
+  .hub-card, .hub-row, .hub-scrim, .hub-modal, .hub-menu, .hub-popover, .hub-surface, .hub-notice { opacity: 1; }
   .hub-handle::before { opacity: .8; }
 }
 `
@@ -1178,13 +1443,15 @@ window.__ModuleLoader__.load({
      * persistent, visible failure state — never a silent fall back to
      * `localStorage`, and never a throw out of a render.
      *
-     * Contract (with `remote.js`): `list()` -> `{ version, items }`;
+     * Contract (with `remote.js`): `list()` -> `{ version, items, statuses }`;
      * `create(draft)`, `update(id, patch)` and `delete(id)` each -> the stored
-     * `Item`, bare. `delete` reaches the Host's `remove` through the
-     * contribution's `implementation`, because the namespace service owns the
-     * name `remove` itself. The gateway wraps every one of them in a
-     * `RemoteResult` envelope, so `hubCall` unwraps it and throws what the Host
-     * rejected with.
+     * `Item`, bare; `createStatus(draft)`, `updateStatus(id, patch)` and
+     * `deleteStatus(id)` each -> the stored `Status`, bare. `delete` reaches the
+     * Host's `remove` through the contribution's `implementation`, because the
+     * namespace service owns the name `remove` itself, and `deleteStatus`
+     * reaches `removeStatus` the same way. The gateway wraps every one of them
+     * in a `RemoteResult` envelope, so `hubCall` unwraps it and throws what the
+     * Host rejected with.
      * ==================================================================== */
 
     let readTheme = () => undefined
@@ -1299,6 +1566,13 @@ window.__ModuleLoader__.load({
         // `remove` of its own and refuses a mounted method that shadows it. The
         // Host still implements `remove`, reached through `implementation`.
         { ...clientInvocation('delete', ['id']), implementation: 'remove' },
+        // The status definitions are the Host's bytes like the items are, so
+        // their CRUD travels over the same Remote.
+        clientInvocation('createStatus', ['draft']),
+        clientInvocation('updateStatus', ['id', 'patch']),
+        // The same pairing as `delete` above: the wire says "delete", the
+        // service says "remove".
+        { ...clientInvocation('deleteStatus', ['id']), implementation: 'removeStatus' },
       ],
     }
 
@@ -1318,7 +1592,7 @@ window.__ModuleLoader__.load({
 
     /**
      * One Remote invocation, re-reading the carrier at call time.
-     * @param {'list'|'create'|'update'|'delete'} method Published Remote method name.
+     * @param {'list'|'create'|'update'|'delete'|'createStatus'|'updateStatus'|'deleteStatus'} method Published Remote method name.
      * @param args Positional arguments in the manifest's order.
      * @returns the decoded payload.
      */
@@ -1352,7 +1626,7 @@ window.__ModuleLoader__.load({
      * older build that has never heard of the field.
      */
     const REQUIRED_KEYS = {
-      todo: ['id', 'kind', 'title', 'description', 'category', 'priority', 'done', 'completedAt', 'attachments', 'note', 'createdAt', 'updatedAt'],
+      todo: ['id', 'kind', 'title', 'description', 'category', 'priority', 'status', 'completedAt', 'attachments', 'note', 'createdAt', 'updatedAt'],
       note: ['id', 'kind', 'title', 'text', 'images', 'createdAt', 'updatedAt'],
       prompt: ['id', 'kind', 'title', 'text', 'images', 'createdAt', 'updatedAt'],
     }
@@ -1415,8 +1689,16 @@ window.__ModuleLoader__.load({
     const EDGE_ICON = { left: 'dockLeft', right: 'dockRight', bottom: 'dockBottom' }
     const EDGE_LABEL_KEY = { left: 'dock.left', right: 'dock.right', bottom: 'dock.bottom' }
 
-    /** Preference key per TODO region id. */
-    const REGION_PREFS = { open: 'todoOpen', done: 'todoDone' }
+    /**
+     * The preference key that holds which TODO regions are open.
+     *
+     * The regions are the statuses, and the statuses are a list the user
+     * curates, so the key is a map keyed by status id rather than a pair of
+     * fixed keys. A status the user later retires leaves its entry behind; it
+     * is inert, because a status that is not in the list has no region to
+     * fold, and the map is small.
+     */
+    const REGION_PREFS = 'todoRegions'
 
     /** Only these two views exist; both are persisted. */
     const VIEWS = ['grid', 'list']
@@ -1433,9 +1715,9 @@ window.__ModuleLoader__.load({
     const COLLAPSE_IDLE_MS = 120
 
     /**
-     * Durable presentation choices. This key carries an edge and a view and
-     * nothing else — item bytes belong to the Host, and a second copy in the
-     * browser would go stale exactly when it hurts.
+     * Durable presentation choices. This key carries an edge, a view and which
+     * TODO regions are open — nothing else. Item bytes belong to the Host, and
+     * a second copy in the browser would go stale exactly when it hurts.
      */
     const PREFS_KEY = 'dsh-hub.prefs.v1'
 
@@ -1466,15 +1748,41 @@ window.__ModuleLoader__.load({
 
     const storedPrefs = readPrefs()
 
+    /**
+     * Which TODO regions are open, read from the persisted map.
+     *
+     * A map keyed by status id, and only the entries that are actually open:
+     * a folded region is the default, so storing it would grow the blob with
+     * every status the user has ever seen. The two keys the previous layout
+     * wrote are dropped on the way out — they named halves that no longer
+     * exist, and leaving them in the blob would make it describe a panel that
+     * is not this one.
+     */
+    function readOpenRegions() {
+      const stored = storedPrefs[REGION_PREFS]
+      if (stored === null || typeof stored !== 'object' || Array.isArray(stored)) return {}
+      const open = {}
+      for (const [id, value] of Object.entries(stored)) {
+        if (value === true) open[id] = true
+      }
+      return open
+    }
+
     function createUiStore() {
       let state = {
         edge: EDGES.includes(storedPrefs.edge) ? storedPrefs.edge : 'right',
         view: VIEWS.includes(storedPrefs.view) ? storedPrefs.view : 'grid',
-        // Both TODO regions start folded. The counts are the point of the split,
-        // and a list that opens itself is the mixing it replaces — so the user
-        // opens the half they came for.
-        todoOpen: storedPrefs.todoOpen === true,
-        todoDone: storedPrefs.todoDone === true,
+        // Every TODO region starts folded. The counts are the point of the
+        // split, and a list that opens itself is the mixing it replaces — so
+        // the user opens the region they came for.
+        [REGION_PREFS]: readOpenRegions(),
+      }
+      // The two keys the previous two-region layout wrote name halves that no
+      // longer exist. They are dropped once, here, so the stored blob stops
+      // describing a panel that is not this one. `undefined` is how a key is
+      // removed: `JSON.stringify` drops it.
+      if (storedPrefs.todoOpen !== undefined || storedPrefs.todoDone !== undefined) {
+        writePrefs({ todoOpen: undefined, todoDone: undefined })
       }
       const listeners = new Set()
       return {
@@ -1526,12 +1834,22 @@ window.__ModuleLoader__.load({
         tab: 'todo',
         phase: 'loading',
         items: [],
+        // The status definitions the Host sent. They are the Host's bytes, so
+        // the panel keeps exactly what arrived and never a list of its own.
+        statuses: [],
         failure: null,
         busy: false,
         queries: initialQueries(),
         modal: null,
         draft: null,
         notice: null,
+        // The status picker's anchor: which item it belongs to and where the
+        // badge was. One popover in the panel, not one per item.
+        popover: null,
+        // The manager's own scratch state: the name being typed, the tone being
+        // chosen, which row has its tone chooser open, and the name each row is
+        // being renamed to.
+        manager: { name: '', tone: 'neutral', picker: null, drafts: {} },
       }
     }
 
@@ -1540,7 +1858,7 @@ window.__ModuleLoader__.load({
         case 'load/start':
           return { ...state, phase: 'loading', failure: null }
         case 'load/ok':
-          return { ...state, phase: 'ready', items: action.items, failure: null }
+          return { ...state, phase: 'ready', items: action.items, statuses: action.statuses, failure: null }
         case 'load/broken':
           return { ...state, phase: 'broken', items: [], failure: action.failure }
         case 'load/fail':
@@ -1548,20 +1866,26 @@ window.__ModuleLoader__.load({
         case 'busy':
           return { ...state, busy: action.busy }
         case 'tab':
-          return { ...state, tab: action.tab, modal: null, draft: null }
+          return { ...state, tab: action.tab, modal: null, draft: null, popover: null }
         case 'query':
           return {
             ...state,
             queries: { ...state.queries, [state.tab]: { ...state.queries[state.tab], ...action.patch } },
           }
         case 'modal':
-          return { ...state, modal: action.modal, draft: action.draft ?? null }
+          // A dialog takes the panel: a popover left open would sit behind the
+          // scrim, dimmed and unreachable.
+          return { ...state, modal: action.modal, draft: action.draft ?? null, popover: null }
         case 'draft/merge':
           return { ...state, draft: { ...(state.draft ?? {}), ...action.draft } }
         case 'draft/append':
           return { ...state, draft: { ...(state.draft ?? {}), files: [...(state.draft?.files ?? []), ...action.files] } }
         case 'notice':
           return { ...state, notice: action.notice }
+        case 'popover':
+          return { ...state, popover: action.popover }
+        case 'manager/draft':
+          return { ...state, manager: { ...state.manager, ...action.draft } }
         default:
           return state
       }
@@ -1572,6 +1896,22 @@ window.__ModuleLoader__.load({
       if (failure === null || failure === undefined) return ''
       if (failure instanceof HubBridgeMissing) return failure.message
       return failure instanceof Error ? failure.message : String(failure)
+    }
+
+    /**
+     * One object without one key.
+     *
+     * The manager's rename drafts are a map keyed by status id, and committing
+     * one of them drops that draft rather than the others.
+     *
+     * @param {object} object The map.
+     * @param {string} key The key to drop.
+     * @returns A copy without it.
+     */
+    function withoutKey(object, key) {
+      const next = { ...object }
+      delete next[key]
+      return next
     }
 
     /* ==================================================================== *
@@ -1637,10 +1977,10 @@ window.__ModuleLoader__.load({
     /**
      * Grouping choices, per kind (§6).
      *
-     * `完成状态` is absent from TODO on purpose: completion is no longer something
-     * a menu arranges, it is the frame the list is built in — see `runRegions`.
-     * Offering it here would put a group header inside a region that is already
-     * one completion state, which says nothing twice.
+     * `完成状态` is absent from TODO on purpose: the status enum is the frame the
+     * list is built in — `runRegions` gives every status a region of its own —
+     * so a grouping choice for it would put a second set of headers inside
+     * regions that are already named by a status.
      */
     const GROUP_FIELDS = {
       todo: [
@@ -1732,6 +2072,55 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * The tones a status may be painted with (DESIGN §5.1).
+     *
+     * A closed vocabulary rather than a setting, so it is fixed here as it is
+     * fixed on the Host side: a tone the Host does not know cannot be painted,
+     * and one the panel does not know would arrive unpainted.
+     */
+    const TONES = ['neutral', 'info', 'brand', 'success', 'warn', 'danger', 'muted']
+
+    /**
+     * Normalize the status definitions the Host sent.
+     *
+     * The list is the Host's and is durable bytes beside the items, so the
+     * panel keeps exactly what arrived — including the order, which is the
+     * order the manager offers the definitions in. A Host that sends no list at
+     * all is an older Host, and an empty list is what the panel can still
+     * render with.
+     *
+     * @param {unknown} raw The `statuses` key of the `list` envelope.
+     * @returns The definitions, in the order they arrived.
+     */
+    function normalizeStatuses(raw) {
+      if (!Array.isArray(raw)) return []
+      return raw
+        .filter(entry => entry !== null && typeof entry === 'object')
+        .map(entry => ({
+          id: String(entry.id ?? ''),
+          label: String(entry.label ?? ''),
+          labelKey: String(entry.labelKey ?? ''),
+          tone: TONES.includes(entry.tone) ? entry.tone : 'neutral',
+          done: entry.done === true,
+        }))
+        .filter(status => status.id !== '')
+    }
+
+    /**
+     * The text a status shows (DESIGN §5.1).
+     *
+     * A definition the user never renamed carries a locale key and follows the
+     * application's language; one they renamed carries its own text.
+     *
+     * @param {object} status A normalized definition.
+     * @returns The text to show.
+     */
+    function statusText(status) {
+      if (status === null || status === undefined) return ''
+      return status.labelKey !== '' ? translate(status.labelKey) : status.label
+    }
+
+    /**
      * Normalize one Host item into the shape the query layer sorts.
      *
      * `name` is the display and sort name, and it is **derived**: the item's own
@@ -1742,8 +2131,12 @@ window.__ModuleLoader__.load({
      * The `size` the sort uses is computed here from the item's own bytes —
      * title, content, note and attachments — because §6 makes that the Client's
      * job and the Host stores no denormalised size to drift out of step.
+     *
+     * @param {object} raw The item as `list` returned it.
+     * @param {Map<string, object>} statusIndex The status definitions by id.
+     * @returns The normalized item.
      */
-    function normalizeItem(raw) {
+    function normalizeItem(raw, statusIndex) {
       const kind = KINDS.includes(raw?.kind) ? raw.kind : null
       if (kind === null) return null
       const content = kind === 'todo' ? String(raw.description ?? '') : String(raw.text ?? '')
@@ -1761,6 +2154,12 @@ window.__ModuleLoader__.load({
         kind === 'todo' ? String(raw.note ?? '') : '',
         ...list.map(file => String(file?.name ?? '')),
       ].join('\n').toLowerCase()
+      // The status a TODO is in, and the definition behind it. An item whose
+      // status no definition carries — a Host that predates the enum — keeps
+      // the old boolean's meaning, so the panel still reads right while the
+      // "the Host is older" notice says what is missing.
+      const status = kind === 'todo' ? String(raw.status ?? '') : ''
+      const definition = kind === 'todo' ? (statusIndex.get(status) ?? null) : null
       return {
         id: String(raw.id ?? ''),
         kind,
@@ -1779,7 +2178,16 @@ window.__ModuleLoader__.load({
         priority: kind === 'todo' && Object.prototype.hasOwnProperty.call(PRIORITY_RANK, raw.priority)
           ? raw.priority
           : 'normal',
-        done: kind === 'todo' ? raw.done === true : false,
+        status,
+        statusDef: definition,
+        // "Finished" is a property of the status, not of the item: one flag,
+        // read by one rule, so the two cannot drift apart. A status no
+        // definition carries is not terminal — a task cannot be sitting in a
+        // state that does not exist — and an older Host's boolean is read
+        // instead, so the panel keeps working against one.
+        done: kind === 'todo'
+          ? (definition !== null ? definition.done === true : raw.done === true)
+          : false,
         // A TODO finished before this field existed carries no stamp, and `0`
         // sorts it as the oldest completion rather than as the newest.
         completedAt: kind === 'todo' ? Date.parse(raw.completedAt) || 0 : 0,
@@ -1797,7 +2205,7 @@ window.__ModuleLoader__.load({
      * priority low to high; descending inverts the primary key only.
      *
      * `completedAt` is the one field id that is not in `SORT_FIELDS`: the menu
-     * does not offer it, because the finished region orders itself by it
+     * does not offer it, because a terminal status's region orders itself by it
      * whatever the user chose (see `runRegions`). It lives here rather than in a
      * comparator of its own so that the `createdAt`/`id` tiebreak below still
      * ends the ordering.
@@ -1877,10 +2285,11 @@ window.__ModuleLoader__.load({
             }))
             .filter(group => group.items.length > 0)
         }
-        // `done` is not a grouping choice any more — completion is the frame the
-        // TODO list is built in, and `runRegions` puts it there instead. Anything
-        // unrecognised lands here too, so a query naming an option this build has
-        // dropped reads as one flat group rather than as a silent split.
+        // The status is not a grouping choice — it is the frame the TODO list is
+        // built in, and `runRegions` gives every status a region of its own.
+        // Anything unrecognised lands here too, so a query naming an option this
+        // build has dropped reads as one flat group rather than as a silent
+        // split.
         return [{ id: 'none', labelKey: null, items }]
       }
       return [
@@ -1914,44 +2323,63 @@ window.__ModuleLoader__.load({
     /**
      * Split a kind's items into the regions the panel frames them in.
      *
-     * A TODO is open or finished, and the two are never one list: the open half
-     * answers "what is left", the finished half is a log of what was done. The
-     * split runs *before* the pipeline so search, filter, sort and grouping all
-     * still apply inside each region rather than across the seam.
+     * **A TODO's regions are its statuses.** The list used to be split into two
+     * hard-coded halves — unfinished above finished — which was all a boolean
+     * could express. The status enum is finer-grained than that: "in progress"
+     * and "on hold" are both unfinished, and a list that files them together
+     * says the same thing twice. So every status is a region of its own, in the
+     * order the user curates them, and the terminal flag decides what a region
+     * *orders* by rather than which half an item is in.
      *
-     * The finished region orders itself by completion, newest first, whatever
-     * the user chose in the sort menu — a log whose newest entry is not at the
-     * top is not a log. The menu still governs the open region, and the menu is
-     * not silently contradicted: it is the finished region that overrides.
+     * The split runs *before* the pipeline so search, filter, sort and grouping
+     * all still apply inside each region rather than across the seam.
+     *
+     * A **terminal** status's region orders itself by completion, newest first,
+     * whatever the user chose in the sort menu — a log whose newest entry is
+     * not at the top is not a log. Every other region follows the menu, and
+     * the menu is not silently contradicted: it is the terminal region that
+     * overrides.
      *
      * A region with nothing in it is not returned at all, so a filter that hides
-     * one side leaves no empty header behind, and the finished region appears at
-     * the moment there is something to put in it.
+     * a status leaves no empty header behind, and a region appears at the
+     * moment there is something to put in it.
+     *
+     * A TODO whose status **no definition carries** is in no region at all —
+     * a Host that predates the enum sends no definitions, and a definition the
+     * user retired leaves the items that carried it behind. Filing them in
+     * their own unlabelled region is what keeps the panel from showing an
+     * empty list over a store full of items; the skew notice is what says why.
      *
      * @param {object[]} items Every normalized item the Host returned.
      * @param {string} kind The active tab.
      * @param {object} query The tab's query state.
+     * @param {object[]} statuses The status definitions, in the user's order.
      * @returns the regions, in display order, each with its own groups.
      */
-    function runRegions(items, kind, query) {
-      if (kind !== 'todo') return [{ id: 'all', labelKey: null, groups: runQuery(items, kind, query) }]
+    function runRegions(items, kind, query, statuses) {
+      // A Note or a Prompt has no status, so it is one undivided list with
+      // nothing to fold and nothing to name.
+      if (kind !== 'todo') return [{ id: 'all', groups: runQuery(items, kind, query) }]
       const todo = items.filter(item => item.kind === 'todo')
-      return [
-        {
-          id: 'open',
-          labelKey: 'group.done.no',
-          groups: runQuery(todo.filter(item => !item.done), kind, query),
-        },
-        {
-          id: 'done',
-          labelKey: 'group.done.yes',
-          groups: runQuery(todo.filter(item => item.done), kind, {
-            ...query,
-            field: 'completedAt',
-            direction: 'desc',
-          }),
-        },
-      ].filter(region => regionTotal(region.groups) > 0)
+      const known = new Set(statuses.map(status => status.id))
+      const regions = statuses
+        .map(status => ({
+          // The status id is the region's id: it is what the item carries, and
+          // what the fold state is remembered against.
+          id: status.id,
+          status,
+          groups: runQuery(
+            todo.filter(item => item.status === status.id),
+            kind,
+            status.done === true ? { ...query, field: 'completedAt', direction: 'desc' } : query,
+          ),
+        }))
+        .filter(region => regionTotal(region.groups) > 0)
+      const unfiled = todo.filter(item => !known.has(item.status))
+      if (unfiled.length > 0) {
+        regions.push({ id: 'unfiled', groups: runQuery(unfiled, kind, query) })
+      }
+      return regions
     }
 
     /* ==================================================================== *
@@ -2141,12 +2569,16 @@ window.__ModuleLoader__.load({
     }
 
     /**
-     * One item's tags: category, priority, completion and attachment count.
+     * One item's tags: category, priority, status and attachment count.
      *
-     * `withState` is off in the list and the grid, where completion already
-     * reads from the struck-through name and the leading glyph: repeating it as
-     * a tag costs a slot in the one line the tags have. The detail dialog
-     * keeps it, because there it is the only thing saying so.
+     * `withState` is off in the list and the grid, where the item already
+     * carries its own badge: repeating the status as a tag costs a slot in the
+     * one line the tags have. The detail dialog keeps it, because there the
+     * badge is not on screen and the status would otherwise be nowhere.
+     *
+     * The tag names the **status**, not the coarse "finished or not": a task
+     * in progress and a task on hold are both unfinished, and the detail view
+     * is the one place the difference is worth spelling out.
      */
     function ItemChips(props) {
       const item = props.item
@@ -2158,10 +2590,10 @@ window.__ModuleLoader__.load({
         chips.push(h('span', { key: 'p', className: 'hub-chip', 'data-tone': item.priority },
           translate(`priority.${item.priority}`)))
       }
-      if (item.kind === 'todo' && props.withState !== false) {
-        chips.push(h('span', { key: 'd', className: 'hub-chip', 'data-tone': item.done ? 'done' : 'open' },
-          h(Icon, { name: item.done ? 'done' : 'open', size: 11 }),
-          translate(item.done ? 'group.done.yes' : 'group.done.no')))
+      if (item.kind === 'todo' && props.withState !== false && item.statusDef !== null) {
+        chips.push(h('span', { key: 'd', className: 'hub-chip' },
+          StatusDot({ tone: item.statusDef.tone }),
+          statusText(item.statusDef)))
       }
       if (item.files.length > 0) {
         chips.push(h('span', { key: 'f', className: 'hub-chip' },
@@ -2187,28 +2619,267 @@ window.__ModuleLoader__.load({
       return `${step * 16}ms`
     }
     /**
-     * Completion, on the item rather than in a form.
+     * The status dot: the badge's two-token mix at a smaller scale (DESIGN §8.3).
      *
-     * The item is a button that opens the detail dialog, so the click stops
-     * here: completing a TODO must not also open the thing it just changed. The
-     * box reflects the stored item and nothing else, so it does not tick on the
-     * click and untick on the reload that follows it.
+     * It is the same wash of the tone's first token on the left and of its
+     * second on the right, masked the same way, so the dot says at a glance
+     * what the badge says in full.
      *
-     * @param {{item: object, onToggle: (item: object, done: boolean) => void}} props
-     * @returns a labelled checkbox, or nothing for a kind that has no `done`.
+     * @param {{tone: string}} props The tone to paint.
+     * @returns the dot element.
      */
-    function DoneToggle(props) {
-      if (props.item.kind !== 'todo') return null
-      return h('input', {
-        key: 'k',
-        type: 'checkbox',
-        className: 'hub-done-check',
-        checked: props.item.done === true,
-        title: translate('field.done'),
-        'aria-label': translate('field.done'),
-        onClick: event => { event.stopPropagation() },
-        onChange: event => { props.onToggle(props.item, event.target.checked === true) },
-      })
+    function StatusDot(props) {
+      return h('span', { className: 'hub-status-dot', 'data-tone': props.tone })
+    }
+
+    /**
+     * The status badge: the item's own completion control.
+     *
+     * A TODO's completion is one choice out of a list the user curates, so it
+     * opens a picker rather than toggling. The badge sits at the trailing end
+     * of the card's title row and of the row itself, and it stops its own
+     * click: the card behind it opens the detail dialog, and opening that here
+     * would put a dialog between the user and the thing they just changed.
+     *
+     * @param {{item: object, onOpen: (item: object, event: object) => void}} props
+     * @returns the badge, or nothing for a kind that has no status.
+     */
+    function StatusBadge(props) {
+      const item = props.item
+      // An item whose status no definition carries has no badge to paint: a
+      // Host that predates the enum is told so by the notice, and a pill with
+      // nothing in it says less than no pill at all.
+      if (item.kind !== 'todo' || item.statusDef === null) return null
+      return h('button', {
+        type: 'button',
+        className: 'hub-status',
+        'data-tone': item.statusDef.tone,
+        // The accessible name says what the control *is* and what it currently
+        // holds: a bare "Status" would hide the value the button shows, and the
+        // value is the whole point of the control.
+        'aria-label': `${translate('field.status')}: ${statusText(item.statusDef)}`,
+        'aria-haspopup': 'menu',
+        title: translate('field.status'),
+        onClick: event => {
+          event.stopPropagation()
+          props.onOpen(item, event)
+        },
+      }, [
+        h('span', { key: 'd' }, StatusDot({ tone: item.statusDef.tone })),
+        h('span', { key: 't', className: 'hub-status-text' }, statusText(item.statusDef)),
+      ])
+    }
+
+    /**
+     * The status picker: the badge's own list of the definitions.
+     *
+     * One popover for the panel rather than one per item, placed at the badge
+     * that opened it — the trigger's box is measured against the surface's, and
+     * the popover is positioned inside the panel, so it follows the badge
+     * rather than the scroll.
+     */
+    function StatusPopover(props) {
+      return h('div', {
+        className: 'hub-popover',
+        role: 'menu',
+        'aria-label': translate('field.status'),
+        style: {
+          right: `${props.right}px`,
+          top: props.top === undefined ? undefined : `${props.top}px`,
+          bottom: props.bottom === undefined ? undefined : `${props.bottom}px`,
+        },
+        onClick: event => event.stopPropagation(),
+      }, [
+        props.statuses.map(status => h('button', {
+          key: status.id,
+          type: 'button',
+          className: 'hub-menu-item',
+          role: 'menuitemradio',
+          'aria-checked': String(status.id === props.currentId),
+          onClick: () => props.onPick(status.id),
+        }, [
+          h('span', { key: 'i' }, status.id === props.currentId
+            ? h(Icon, { name: 'check', size: 13, width: 2 })
+            : StatusDot({ tone: status.tone })),
+          h('span', { key: 'l' }, statusText(status)),
+        ])),
+        h('div', { key: 'sep', className: 'hub-popover-sep' }),
+        h('button', {
+          key: 'm',
+          type: 'button',
+          className: 'hub-menu-item',
+          role: 'menuitem',
+          onClick: props.onManage,
+        }, [
+          h('span', { key: 'i' }, h(Icon, { name: 'sliders', size: 14 })),
+          h('span', { key: 'l' }, translate('status.manage')),
+        ]),
+      ])
+    }
+
+    /**
+     * One tone in the chooser: the tone's own colour, drawn as an inline SVG so
+     * the control carries a mark rather than a bare patch of colour.
+     */
+    function ToneSwatch(props) {
+      return h('button', {
+        type: 'button',
+        className: 'hub-tone-swatch',
+        'data-tone': props.tone,
+        'aria-label': props.label,
+        title: props.label,
+        'aria-pressed': props.pressed === undefined ? undefined : String(props.pressed),
+        onClick: props.onClick,
+      }, h('svg', {
+        viewBox: '0 0 24 24',
+        width: 12,
+        height: 12,
+        fill: 'currentColor',
+        'aria-hidden': 'true',
+        focusable: 'false',
+      }, h('circle', { cx: 12, cy: 12, r: 9 })))
+    }
+
+    /**
+     * The tone chooser: the seven tones a status may be painted with.
+     */
+    function TonePicker(props) {
+      return h('div', {
+        className: 'hub-tone-picker',
+        role: 'group',
+        'aria-label': translate('status.tone'),
+      }, TONES.map(tone => ToneSwatch({
+        key: tone,
+        tone,
+        label: translate(`tone.${tone}`),
+        pressed: tone === props.value,
+        onClick: () => props.onPick(tone),
+      })))
+    }
+
+    /**
+     * The status manager: full CRUD over the definitions.
+     *
+     * Every write goes through the Remote — the definitions are the Host's
+     * bytes, so a list the panel kept for itself would show a status the store
+     * does not have and lose it on the next reload. Each row is one definition
+     * as the Host sent it, and the row at the bottom mints a new one.
+     */
+    function StatusManagerModal(props) {
+      const manager = props.manager
+      const statuses = props.statuses
+      return h(Modal, {
+        title: translate('status.manager'),
+        onClose: props.onClose,
+        actions: [
+          h('button', {
+            key: 'close',
+            type: 'button',
+            className: 'hub-text-button',
+            'data-quiet': 'true',
+            onClick: props.onClose,
+          }, translate('action.close')),
+        ],
+      }, [
+        h('div', { key: 'h', className: 'hub-hint' }, translate('status.manager.hint')),
+        h('div', { key: 'l', className: 'hub-status-list' },
+          statuses.map((status, index) => h('div', { key: status.id, className: 'hub-status-block' }, [
+            h('div', { key: 'r', className: 'hub-status-row' }, [
+              ToneSwatch({
+                key: 't',
+                tone: status.tone,
+                // The tone's own name, not "colour": seven rows all labelled
+                // "colour" would say the same thing about each of them.
+                label: translate(`tone.${status.tone}`),
+                onClick: () => props.onPickTone(status.id),
+              }),
+              h('input', {
+                key: 'n',
+                className: 'hub-input',
+                // The stored text until the user types, then their own draft:
+                // a rename is committed when the field loses the focus, not on
+                // every keystroke.
+                value: manager.drafts[status.id] ?? statusText(status),
+                'aria-label': translate('status.name'),
+                onChange: event => props.onDraft({ id: status.id, name: event.target.value }),
+                onBlur: () => props.onCommitName(status.id),
+                onKeyDown: event => { if (event.key === 'Enter') props.onCommitName(status.id) },
+              }),
+              h('button', {
+                key: 'd',
+                type: 'button',
+                className: 'hub-toggle',
+                role: 'switch',
+                'aria-checked': String(status.done),
+                'aria-label': translate('status.terminal'),
+                title: translate('status.terminal'),
+                onClick: () => props.onToggleDone(status.id),
+              }, status.done ? h(Icon, { name: 'check', size: 11, width: 2 }) : null),
+              IconButton({
+                key: 'u',
+                icon: 'arrowUp',
+                label: translate('action.moveUp'),
+                size: 13,
+                disabled: index === 0,
+                onClick: () => props.onMove(status.id, -1),
+              }),
+              IconButton({
+                key: 'dn',
+                icon: 'arrowDown',
+                label: translate('action.moveDown'),
+                size: 13,
+                disabled: index === statuses.length - 1,
+                onClick: () => props.onMove(status.id, 1),
+              }),
+              IconButton({
+                key: 'x',
+                icon: 'trash',
+                label: translate('action.delete'),
+                size: 13,
+                className: 'hub-tool hub-tool-danger',
+                onClick: () => props.onDelete(status.id),
+              }),
+            ]),
+            manager.picker === status.id
+              ? h(TonePicker, {
+                key: 'p',
+                value: status.tone,
+                onPick: tone => props.onTone(status.id, tone),
+              })
+              : null,
+          ]))),
+        h('div', { key: 'a', className: 'hub-status-add' }, [
+          h('input', {
+            key: 'n',
+            className: 'hub-input',
+            value: manager.name,
+            placeholder: translate('status.newName'),
+            'aria-label': translate('status.newName'),
+            onChange: event => props.onDraft({ name: event.target.value }),
+          }),
+          ToneSwatch({
+            key: 't',
+            tone: manager.tone,
+            label: translate(`tone.${manager.tone}`),
+            onClick: () => props.onPickTone('new'),
+          }),
+          h('button', {
+            key: 'go',
+            type: 'button',
+            className: 'hub-text-button',
+            'data-primary': 'true',
+            disabled: manager.name.trim() === '' || props.busy,
+            onClick: props.onAdd,
+          }, translate('action.add')),
+        ]),
+        manager.picker === 'new'
+          ? h(TonePicker, {
+            key: 'p',
+            value: manager.tone,
+            onPick: tone => props.onDraft({ tone }),
+          })
+          : null,
+      ])
     }
 
     /** Detail and delete affordances shared by the card and the row. */
@@ -2242,10 +2913,10 @@ window.__ModuleLoader__.load({
         tabIndex: 0,
         onClick: () => props.onOpen(item),
         onKeyDown: event => {
-          // A nested control owns its own keys. Space on the checkbox toggles it
-          // and Space on an item action fires that action; both bubble here, and
-          // opening the item on top of them would put the detail dialog between
-          // the user and the thing they just pressed.
+          // A nested control owns its own keys. Space on the status badge opens
+          // the picker and Space on an item action fires that action; both
+          // bubble here, and opening the item on top of them would put the
+          // detail dialog between the user and the thing they just pressed.
           if (event.target !== event.currentTarget) return
           // Space is the second activation key on a role=button; without this it
           // also scrolls the panel body underneath.
@@ -2256,7 +2927,7 @@ window.__ModuleLoader__.load({
       }, [
         h('div', { key: 'h', className: 'hub-card-head' }, [
           h('span', { key: 'n', className: 'hub-item-name' }, item.name),
-          DoneToggle({ item, onToggle: props.onToggle }),
+          StatusBadge({ item, onOpen: props.onStatus }),
         ]),
         // Content is optional (DESIGN §5), so an item whose title says it all
         // carries none: the box is not drawn at all rather than drawn empty,
@@ -2305,7 +2976,7 @@ window.__ModuleLoader__.load({
         ]),
         h('span', { key: 's', className: 'hub-card-size' }, formatSize(item.size)),
         ItemActions({ item, onCopy: props.onCopy, onDelete: props.onDelete }),
-        DoneToggle({ item, onToggle: props.onToggle }),
+        StatusBadge({ item, onOpen: props.onStatus }),
       ])
     }
 
@@ -2328,7 +2999,7 @@ window.__ModuleLoader__.load({
               item,
               index,
               onOpen: props.onOpen,
-              onToggle: props.onToggle,
+              onStatus: props.onStatus,
               onCopy: props.onCopy,
               onDelete: props.onDelete,
             })))
@@ -2338,7 +3009,7 @@ window.__ModuleLoader__.load({
               item,
               index,
               onOpen: props.onOpen,
-              onToggle: props.onToggle,
+              onStatus: props.onStatus,
               onCopy: props.onCopy,
               onDelete: props.onDelete,
             }))),
@@ -2352,12 +3023,18 @@ window.__ModuleLoader__.load({
      * unmounting it is what lets the collapse animate at all, and it keeps a
      * region's scroll position across a fold and unfold.
      *
-     * A region with no label — every Note and Prompt — draws no header and never
-     * folds: there is one list there, and a header over it would say nothing.
+     * A TODO's region is named by its status, and it wears that status's dot —
+     * the same dot the item's badge carries, so the header and the items under
+     * it read as one thing.
+     *
+     * A region with no status — every Note and Prompt — draws no header and
+     * never folds: there is one list there, and a header over it would say
+     * nothing.
      */
     function Region(props) {
       const region = props.region
-      const labelled = region.labelKey !== null
+      const status = region.status ?? null
+      const labelled = status !== null
       // An unlabelled region is every Note and Prompt: one undivided list with
       // nothing to fold, so it is always open rather than folded to a header it
       // does not have.
@@ -2365,7 +3042,7 @@ window.__ModuleLoader__.load({
       const shared = {
         view: props.view,
         onOpen: props.onOpen,
-        onToggle: props.onToggle,
+        onStatus: props.onStatus,
         onCopy: props.onCopy,
         onDelete: props.onDelete,
       }
@@ -2378,7 +3055,9 @@ window.__ModuleLoader__.load({
             'aria-expanded': String(open),
             onClick: props.onFold,
           }, [
-            h('span', { key: 'l', className: 'hub-region-label' }, translate(region.labelKey)),
+            h('span', { key: 'd', className: 'hub-region-dot' },
+              StatusDot({ tone: status.tone })),
+            h('span', { key: 'l', className: 'hub-region-label' }, statusText(status)),
             h('span', { key: 'c', className: 'hub-group-count' },
               `${regionTotal(region.groups)} ${translate('count.unit')}`),
             h('span', { key: 'a', className: 'hub-region-chevron' },
@@ -2619,10 +3298,15 @@ window.__ModuleLoader__.load({
       ])
     }
 
-    /** Confirmation before a hard delete. */
+    /**
+     * Confirmation before a hard delete.
+     *
+     * The same dialog serves an item and a status definition: the wording is
+     * the only difference, and a second dialog would say the same thing twice.
+     */
     function DeleteModal(props) {
       return h(Modal, {
-        title: translate('modal.delete'),
+        title: translate(props.titleKey),
         onClose: props.onClose,
         actions: [
           h('button', {
@@ -2642,8 +3326,8 @@ window.__ModuleLoader__.load({
           }, translate('action.confirm')),
         ],
       }, [
-        h('div', { key: 'n', className: 'hub-detail-name' }, props.item.name),
-        h('div', { key: 'b', className: 'hub-detail-note' }, translate('modal.delete.body')),
+        h('div', { key: 'n', className: 'hub-detail-name' }, props.name),
+        h('div', { key: 'b', className: 'hub-detail-note' }, translate(props.bodyKey)),
       ])
     }
 
@@ -2780,6 +3464,8 @@ window.__ModuleLoader__.load({
       const [gridRef, gridWidth] = useMeasuredWidth()
       const collapseTimer = useRef(null)
       const noticeTimer = useRef(null)
+      // The surface the status popover is positioned against.
+      const surfaceRef = useRef(null)
       // `pinned` drives both the hold-open rule and the ref the collapse timer
       // reads; the ref is the timer-safe copy.
       const pinnedRef = useRef(false)
@@ -2829,8 +3515,14 @@ window.__ModuleLoader__.load({
           if (!Array.isArray(raw)) throw new Error('hub.list did not return an items array')
           // `version` rides the envelope for a future compatibility rule; there
           // is no defined one yet, so nothing here gates on it.
-          const items = raw.map(normalizeItem).filter(Boolean)
-          dispatch({ type: 'load/ok', items })
+          //
+          // A Host that predates the enum sends no list at all. That is an
+          // empty list here rather than a crash: the panel still renders, and
+          // the notice below names the field the running Host is missing.
+          const statuses = normalizeStatuses(envelope?.statuses)
+          const index = new Map(statuses.map(status => [status.id, status]))
+          const items = raw.map(item => normalizeItem(item, index)).filter(Boolean)
+          dispatch({ type: 'load/ok', items, statuses })
           const behind = missingHostFields(raw)
           if (behind.length > 0) {
             // The field names go in bare: they are schema identifiers, not
@@ -2838,12 +3530,14 @@ window.__ModuleLoader__.load({
             // source for.
             say(`${translate('state.hostOlder')} (${behind.join(', ')})`, 'warn')
           }
+          return items
         }
         catch (error) {
           dispatch({
             type: error instanceof HubBridgeMissing ? 'load/broken' : 'load/fail',
             failure: error,
           })
+          return []
         }
       }, [])
 
@@ -2864,27 +3558,37 @@ window.__ModuleLoader__.load({
         dispatch({
           type: 'modal',
           modal: { kind: 'create' },
-          draft: { title: '', description: '', text: '', category: '', priority: 'normal', done: false, note: '', files: [] },
+          draft: { title: '', description: '', text: '', category: '', priority: 'normal', note: '', files: [] },
         })
       }, [])
 
       const openDetail = useCallback(item => dispatch({ type: 'modal', modal: { kind: 'detail', id: item.id } }))
 
-      // Declared ahead of every writer that lands an item somewhere: `submit` and
-      // the completion toggle both put something in a region and then need it
+      // Declared ahead of every writer that lands an item somewhere: `submit`
+      // and the status picker both put something in a region and then need it
       // open, and a `useCallback` dependency array reads this binding at
       // declaration time.
+      //
+      // The regions are the statuses, so the id is a status id and the open
+      // state is a map entry. A region that is folded is simply absent from
+      // the map, so the map holds only what the user opened.
       const setRegionOpen = useCallback((id, open) => {
-        const key = REGION_PREFS[id]
-        if (key === undefined || uiStore.getSnapshot()[key] === open) return
-        uiStore.update({ [key]: open })
-        writePrefs({ [key]: open })
+        if (typeof id !== 'string' || id === '') return
+        const current = uiStore.getSnapshot()[REGION_PREFS]
+        if ((current[id] === true) === open) return
+        const next = { ...current }
+        if (open) next[id] = true
+        else delete next[id]
+        uiStore.update({ [REGION_PREFS]: next })
+        // The two keys the previous two-region layout wrote name halves that no
+        // longer exist. `undefined` is how a key is *removed* here:
+        // `JSON.stringify` drops it, so the stored blob stops describing a
+        // panel that is not this one.
+        writePrefs({ [REGION_PREFS]: next, todoOpen: undefined, todoDone: undefined })
       }, [])
 
       const foldRegion = useCallback(id => {
-        const key = REGION_PREFS[id]
-        if (key === undefined) return
-        setRegionOpen(id, !(uiStore.getSnapshot()[key] === true))
+        setRegionOpen(id, !(uiStore.getSnapshot()[REGION_PREFS][id] === true))
       }, [setRegionOpen])
 
       const openEdit = useCallback(item => dispatch({
@@ -2896,28 +3600,88 @@ window.__ModuleLoader__.load({
           text: item.content,
           category: item.category,
           priority: item.priority,
-          done: item.done,
+          // The form carries no status control, but the draft has to carry the
+          // status the item already has: an update that dropped it would clear
+          // the status a badge set, every time somebody edited the title.
+          status: item.status,
           note: item.note,
           files: item.files.map(file => ({ ...file })),
         },
       }))
 
-      const closeModal = useCallback(() => dispatch({ type: 'modal', modal: null }))
+      const closeModal = useCallback(() => {
+        // A refused delete of a status comes back to the manager, which is
+        // where the delete was asked for.
+        if (state.modal?.kind === 'deleteStatus') {
+          dispatch({ type: 'modal', modal: { kind: 'statusManager' } })
+          return
+        }
+        dispatch({ type: 'modal', modal: null })
+      }, [state.modal])
 
       const askDelete = useCallback(item => dispatch({ type: 'modal', modal: { kind: 'delete', id: item.id } }))
 
-      // Escape backs out one layer at a time — a menu first, then a dialog.
-      // Bound to the panel rather than the document: once the pointer has
-      // wandered off, the focused control is still inside the panel, and a
-      // document-wide listener would also fire in other panels of the app.
+      const closePopover = useCallback(() => dispatch({ type: 'popover', popover: null }), [])
+
+      // The status picker is placed at the badge that opened it: the trigger's
+      // box is measured against the surface's, at click time, because the body
+      // scrolls and the badge moves under the pointer.
+      //
+      // It opens **towards the panel's inside**. The badge sits at the trailing
+      // end of the card, so a popover that grew rightwards from it would hang
+      // out of the panel and over the conversation behind it; hanging its right
+      // edge off the badge's right edge makes it grow leftwards instead. It
+      // drops below the badge unless there is no room there, in which case it
+      // rises above it.
+      const openStatusPicker = useCallback((item, event) => {
+        const trigger = event?.currentTarget
+        const surface = surfaceRef.current
+        const triggerRect = typeof trigger?.getBoundingClientRect === 'function'
+          ? trigger.getBoundingClientRect()
+          : null
+        const surfaceRect = typeof surface?.getBoundingClientRect === 'function'
+          ? surface.getBoundingClientRect()
+          : null
+        const placed = triggerRect !== null && surfaceRect !== null
+        const room = placed ? surfaceRect.bottom - triggerRect.bottom : 0
+        const above = placed ? triggerRect.top - surfaceRect.top : 0
+        // The popover is at most this tall, so this much room below it is
+        // enough for it to open without being cut off.
+        const flip = placed && room < POPOVER_MAX_HEIGHT && above > room
+        dispatch({
+          type: 'popover',
+          popover: {
+            itemId: item.id,
+            right: placed ? Math.round(surfaceRect.right - triggerRect.right) : 0,
+            top: placed && !flip ? Math.round(triggerRect.bottom - surfaceRect.top) : undefined,
+            bottom: placed && flip ? Math.round(surfaceRect.bottom - triggerRect.top) : undefined,
+          },
+        })
+      }, [])
+
+      // One menu at a time, and the status popover is not a second one:
+      // opening a menu closes the popover, so the two are never both on
+      // screen and the popover's anchor is never under a menu.
+      const toggleMenu = useCallback(id => {
+        closePopover()
+        setMenu(current => (current === id ? 'none' : id))
+      }, [closePopover])
+
+      // Escape backs out one layer at a time — a dialog first, then the status
+      // popover, then a menu. Bound to the panel rather than the document: once
+      // the pointer has wandered off, the focused control is still inside the
+      // panel, and a document-wide listener would also fire in other panels of
+      // the app.
       const menuOpen = menu !== 'none'
+      const popoverOpen = state.popover !== null
       const modalOpen = state.modal !== null
       const onPanelKey = useCallback((event) => {
         if (event.key !== 'Escape') return
         event.preventDefault()
         if (modalOpen) closeModal()
+        else if (popoverOpen) closePopover()
         else if (menuOpen) setMenu('none')
-      }, [menuOpen, modalOpen, closeModal])
+      }, [menuOpen, popoverOpen, modalOpen, closeModal, closePopover])
 
       const pickFiles = useCallback(async (fileList) => {
         const files = Array.from(fileList ?? [])
@@ -2954,20 +3718,26 @@ window.__ModuleLoader__.load({
               // draft are not distinguishable from their fields alone. It is
               // omitted from an update, where the existing kind already holds.
               hubCall('create', { ...payload, kind: state.tab }))
+          // What the Host stored, so the region the item landed in is known
+          // rather than guessed: a new TODO is filed under the Host's default
+          // status, and only the Host knows which one that is.
+          let saved = null
           if (state.tab === 'todo') {
-            await send({
+            const payload = {
               title: draft.title,
               description: draft.description,
               category: draft.category,
               priority: draft.priority,
-              // The form carries no completion control — the item's own
-              // checkbox owns that — but the round trip still sends the value:
-              // an update that dropped it would clear the completion a checkbox
-              // set, every time somebody edited the title.
-              done: draft.done,
               note: draft.note,
               attachments: files,
-            })
+            }
+            // The form carries no completion control — the item's own badge
+            // owns that — but the round trip still sends the status the item
+            // already has: an update that dropped it would clear the status a
+            // badge set, every time somebody edited the title. A create has no
+            // status yet, so the Host picks the default one.
+            if (typeof draft.status === 'string' && draft.status !== '') payload.status = draft.status
+            saved = await send(payload)
           }
           else {
             await send({ title: draft.title, text: draft.text, images: files })
@@ -2975,11 +3745,15 @@ window.__ModuleLoader__.load({
           closeModal()
           say(null)
           await load()
-          // The same rule the completion toggle follows: a region opens itself
+          // The same rule the status picker follows: a region opens itself
           // when something lands in it. A new TODO would otherwise disappear
           // into a folded region the moment the dialog closed, and the empty
-          // state would read as "the save did not work".
-          if (!editing && state.tab === 'todo') setRegionOpen('open', true)
+          // state would read as "the save did not work". The region is named
+          // by the status the Host filed the item under, which is the only
+          // one it can be in.
+          if (!editing && state.tab === 'todo') {
+            setRegionOpen(saved?.status, true)
+          }
         }
         catch (error) {
           say(failureText(error) || translate('state.failed'), 'error')
@@ -3007,35 +3781,128 @@ window.__ModuleLoader__.load({
         }
       }, [state.modal, closeModal, say, load])
 
-      // Completion, from the item's own checkbox rather than the edit form. The
-      // write is the one the form used to make, minus the dialog, and it reloads
-      // like every other write — so the item comes back from the store rather
-      // than from a local guess a rejected write would have to be undone from.
-      // Nothing is marked `busy` while it runs: that would re-render the item
-      // with the completion it does not have yet and snap the box back under the
-      // pointer. One completion write at a time, instead, which is what keeps a
-      // double click from sending two.
-      const writingDone = useRef(false)
-      const toggleDone = useCallback(async (item, done) => {
-        if (writingDone.current) return
-        writingDone.current = true
+      // The status a TODO carries is the Host's, so the write goes through the
+      // Remote and the item comes back from the store rather than from a local
+      // guess: a refused write must not leave the badge showing a status the
+      // store never took.
+      const chooseStatus = useCallback(async (item, statusId) => {
+        dispatch({ type: 'popover', popover: null })
         try {
-          await hubCall('update', item.id, { done })
-          say(null)
-          await load()
-          // The region the item just landed in opens itself. Folding is what
-          // keeps the two halves apart, but a task that moves while its region
-          // is shut has moved invisibly — the count would move and nothing else
-          // would, which reads as a miscount rather than as a task finishing.
-          setRegionOpen(done ? 'done' : 'open', true)
+          await hubCall('update', item.id, { status: statusId })
+          const items = await load()
+          // The region the item landed in opens itself. Folding is what keeps
+          // the regions apart, but a task that moves while its region is shut
+          // has moved invisibly — the count would move and nothing else would,
+          // which reads as a miscount rather than as a task changing state.
+          // The region is named by the status the item now carries.
+          const landed = items.find(candidate => candidate.id === item.id)
+          if (landed !== undefined) setRegionOpen(landed.status, true)
         }
         catch (error) {
           say(failureText(error) || translate('state.failed'), 'error')
         }
-        finally {
-          writingDone.current = false
+      }, [load, say, setRegionOpen])
+
+      // Every write over the status definitions goes through the Remote and
+      // reloads the list: the definitions are the Host's bytes, so the panel
+      // never keeps a second copy of them.
+      const writeStatus = useCallback(async (method, args) => {
+        dispatch({ type: 'busy', busy: true })
+        try {
+          await hubCall(method, ...args)
+          await load()
+          return true
         }
-      }, [say, load, setRegionOpen])
+        catch (error) {
+          say(failureText(error) || translate('state.failed'), 'error')
+          return false
+        }
+        finally {
+          dispatch({ type: 'busy', busy: false })
+        }
+      }, [load, say])
+
+      const pickTone = useCallback(id => {
+        dispatch({
+          type: 'manager/draft',
+          draft: { picker: state.manager.picker === id ? null : id },
+        })
+      }, [state.manager.picker])
+
+      const setStatusTone = useCallback(async (id, tone) => {
+        dispatch({ type: 'manager/draft', draft: { picker: null } })
+        await writeStatus('updateStatus', [id, { tone }])
+      }, [writeStatus])
+
+      const setStatusTerminal = useCallback(async id => {
+        const status = state.statuses.find(candidate => candidate.id === id)
+        if (status === undefined) return
+        await writeStatus('updateStatus', [id, { done: !status.done }])
+      }, [state.statuses, writeStatus])
+
+      const moveStatus = useCallback(async (id, delta) => {
+        const index = state.statuses.findIndex(candidate => candidate.id === id)
+        if (index === -1) return
+        const target = index + delta
+        if (target < 0 || target >= state.statuses.length) return
+        // `order` is the position the definition ends up at: the Host takes it
+        // out of the list and puts it back at that index.
+        await writeStatus('updateStatus', [id, { order: target }])
+      }, [state.statuses, writeStatus])
+
+      // A rename is committed when the field loses the focus, not on every
+      // keystroke: a write per character would be a write per character.
+      const commitStatusName = useCallback(async id => {
+        const draft = state.manager.drafts[id]
+        if (draft === undefined) return
+        const status = state.statuses.find(candidate => candidate.id === id)
+        if (status === undefined) return
+        const label = draft.trim()
+        const cleared = { drafts: withoutKey(state.manager.drafts, id) }
+        // Compared against the text the field *showed*, not against the stored
+        // label: a definition the user never renamed shows its locale key's
+        // text, and writing that back would turn a definition that follows the
+        // application into one frozen in this language.
+        if (label === '' || label === statusText(status)) {
+          dispatch({ type: 'manager/draft', draft: cleared })
+          return
+        }
+        const written = await writeStatus('updateStatus', [id, { label }])
+        if (written) dispatch({ type: 'manager/draft', draft: cleared })
+      }, [state.manager.drafts, state.statuses, writeStatus])
+
+      const addStatus = useCallback(async () => {
+        const label = state.manager.name.trim()
+        if (label === '') return
+        const written = await writeStatus('createStatus', [{ label, tone: state.manager.tone }])
+        if (written) dispatch({ type: 'manager/draft', draft: { name: '' } })
+      }, [state.manager.name, state.manager.tone, writeStatus])
+
+      const askDeleteStatus = useCallback(id => {
+        dispatch({ type: 'modal', modal: { kind: 'deleteStatus', id } })
+      }, [])
+
+      const confirmDeleteStatus = useCallback(async () => {
+        const id = state.modal?.id
+        if (typeof id !== 'string') return
+        await writeStatus('deleteStatus', [id])
+        // The manager is where the delete was asked for, so it comes back
+        // whether the delete landed or not — a refusal is said in the notice.
+        dispatch({ type: 'modal', modal: { kind: 'statusManager' } })
+      }, [state.modal, writeStatus])
+
+      // The manager's scratch state: the name being typed for a new status, the
+      // tone it is being given, and the name each row is being renamed to.
+      const draftManager = useCallback(draft => {
+        if (draft.id !== undefined) {
+          dispatch({
+            type: 'manager/draft',
+            draft: { drafts: { ...state.manager.drafts, [draft.id]: draft.name } },
+          })
+          return
+        }
+        dispatch({ type: 'manager/draft', draft })
+      }, [state.manager.drafts])
 
       const copyItem = useCallback(async (item) => {
         // A title-only item has no body to copy, and an empty string on the
@@ -3054,9 +3921,11 @@ window.__ModuleLoader__.load({
         writePrefs({ view })
       }, [])
 
+      // The regions are the statuses, so the list is re-framed whenever the
+      // definitions change — a new status, a rename, a different order.
       const regions = useMemo(
-        () => runRegions(state.items, state.tab, query),
-        [state.items, state.tab, query],
+        () => runRegions(state.items, state.tab, query, state.statuses),
+        [state.items, state.statuses, state.tab, query],
       )
 
       const visible = useMemo(
@@ -3073,8 +3942,21 @@ window.__ModuleLoader__.load({
       const modalItem = useMemo(() => {
         if (state.modal === null) return null
         if (state.modal.kind === 'create' || state.modal.kind === 'edit') return null
+        if (state.modal.kind === 'statusManager' || state.modal.kind === 'deleteStatus') return null
         return state.items.find(item => item.id === state.modal.id) ?? null
       }, [state.modal, state.items])
+
+      // The item the status popover belongs to. It is looked up rather than
+      // kept, so a popover whose item has gone renders nothing.
+      const popoverItem = useMemo(() => {
+        if (state.popover === null) return null
+        return state.items.find(item => item.id === state.popover.itemId) ?? null
+      }, [state.popover, state.items])
+
+      const deleteStatusTarget = useMemo(() => {
+        if (state.modal?.kind !== 'deleteStatus') return null
+        return state.statuses.find(status => status.id === state.modal.id) ?? null
+      }, [state.modal, state.statuses])
 
       const searching = query.search.trim() !== ''
       const holding = pinned || state.modal !== null
@@ -3116,11 +3998,11 @@ window.__ModuleLoader__.load({
               regions.map(region => Region({
                 key: region.id,
                 region,
-                open: ui[REGION_PREFS[region.id]],
+                open: ui[REGION_PREFS][region.id] === true,
                 view: ui.view,
                 onFold: () => foldRegion(region.id),
                 onOpen: openDetail,
-                onToggle: (target, done) => { void toggleDone(target, done) },
+                onStatus: (item, event) => { openStatusPicker(item, event) },
                 onCopy: item => { void copyItem(item) },
                 onDelete: askDelete,
               })))
@@ -3155,7 +4037,7 @@ window.__ModuleLoader__.load({
             onClick: handleClick,
           }, h('span', { className: 'hub-handle-mark' }, h(Icon, { name: 'hub', size: 16 }))),
         expanded
-          ? h('div', { key: 'panel', className: 'hub-surface' }, [
+          ? h('div', { key: 'panel', className: 'hub-surface', ref: surfaceRef }, [
             h('div', { key: 'head', className: 'hub-head' }, [
               h('span', { key: 'title', className: 'hub-title' },
                 h(Icon, { name: 'hub', size: 15 }),
@@ -3184,7 +4066,7 @@ window.__ModuleLoader__.load({
                   icon: 'sort',
                   label: translate('action.sort'),
                   on: menu === 'sort',
-                  onClick: () => setMenu(current => (current === 'sort' ? 'none' : 'sort')),
+                  onClick: () => toggleMenu('sort'),
                 }),
                 IconButton({
                   key: 'view',
@@ -3197,7 +4079,7 @@ window.__ModuleLoader__.load({
                   icon: 'dock' + (ui.edge === 'left' ? 'Left' : ui.edge === 'right' ? 'Right' : 'Bottom'),
                   label: translate('action.dock'),
                   on: menu === 'dock',
-                  onClick: () => setMenu(current => (current === 'dock' ? 'none' : 'dock')),
+                  onClick: () => toggleMenu('dock'),
                 }),
                 IconButton({
                   key: 'theme',
@@ -3206,7 +4088,7 @@ window.__ModuleLoader__.load({
                     : themePreference === 'dark' ? 'moon' : 'monitor',
                   label: translate('action.theme'),
                   on: menu === 'theme',
-                  onClick: () => setMenu(current => (current === 'theme' ? 'none' : 'theme')),
+                  onClick: () => toggleMenu('theme'),
                 }),
                 IconButton({
                   key: 'close',
@@ -3218,9 +4100,25 @@ window.__ModuleLoader__.load({
             ]),
             h('div', { key: 'meta', className: 'hub-meta' }, [
               h('span', { key: 'n' }, `${visible} ${translate('count.unit')}`),
-              h('span', { key: 's', className: 'hub-meta-sort', 'data-direction': query.direction },
-                translate(SORT_FIELD_LABEL_KEY[state.tab][query.field]),
-                h(Icon, { key: 'c', name: 'chevronDown', size: 11 })),
+              // A button, not a readout: it carries a chevron that turns with the
+              // direction, so it reads as a dropdown, and a dropdown that opens
+              // nothing is worse than one that is not there. It drives the same
+              // menu as the toolbar's sort icon, so the two cannot disagree about
+              // whether it is open.
+              h('button', {
+                key: 's',
+                type: 'button',
+                className: 'hub-meta-sort',
+                'data-direction': query.direction,
+                'data-on': String(menu === 'sort'),
+                'aria-haspopup': 'menu',
+                'aria-expanded': String(menu === 'sort'),
+                title: translate('action.sort'),
+                onClick: () => toggleMenu('sort'),
+              }, [
+                h('span', { key: 'l' }, translate(SORT_FIELD_LABEL_KEY[state.tab][query.field])),
+                h(Icon, { key: 'c', name: 'chevronDown', size: 11 }),
+              ]),
             ]),
             menu !== 'none' && menu !== 'sort'
               ? h(FrameMenu, {
@@ -3237,6 +4135,19 @@ window.__ModuleLoader__.load({
             // One measured node for every group: a ref shared across the per-group
             // grids would only ever hold the last one React attached it to.
             h('div', { key: 'body', className: 'hub-body', ref: gridRef }, body),
+            // One popover for the panel, placed at the badge that opened it.
+            state.popover === null || popoverItem === null
+              ? null
+              : h(StatusPopover, {
+                key: 'popover',
+                statuses: state.statuses,
+                currentId: popoverItem.status,
+                right: state.popover.right,
+                top: state.popover.top,
+                bottom: state.popover.bottom,
+                onPick: statusId => { void chooseStatus(popoverItem, statusId) },
+                onManage: () => { dispatch({ type: 'modal', modal: { kind: 'statusManager' } }) },
+              }),
             state.notice === null
               ? null
               : h('div', { key: 'notice', className: 'hub-notice', 'data-tone': state.notice.tone },
@@ -3286,12 +4197,40 @@ window.__ModuleLoader__.load({
                   : state.modal.kind === 'delete' && modalItem !== null
                     ? h(DeleteModal, {
                       key: 'delete',
-                      item: modalItem,
+                      titleKey: 'modal.delete',
+                      bodyKey: 'modal.delete.body',
+                      name: modalItem.name,
                       busy: state.busy,
                       onConfirm: () => { void confirmDelete() },
                       onClose: closeModal,
                     })
-                    : null)
+                    : state.modal.kind === 'statusManager'
+                      ? h(StatusManagerModal, {
+                        key: 'statuses',
+                        statuses: state.statuses,
+                        manager: state.manager,
+                        busy: state.busy,
+                        onDraft: draftManager,
+                        onPickTone: pickTone,
+                        onTone: (id, tone) => { void setStatusTone(id, tone) },
+                        onToggleDone: id => { void setStatusTerminal(id) },
+                        onMove: (id, delta) => { void moveStatus(id, delta) },
+                        onCommitName: id => { void commitStatusName(id) },
+                        onAdd: () => { void addStatus() },
+                        onDelete: askDeleteStatus,
+                        onClose: closeModal,
+                      })
+                      : state.modal.kind === 'deleteStatus' && deleteStatusTarget !== null
+                        ? h(DeleteModal, {
+                          key: 'deleteStatus',
+                          titleKey: 'modal.deleteStatus',
+                          bodyKey: 'modal.deleteStatus.body',
+                          name: statusText(deleteStatusTarget),
+                          busy: state.busy,
+                          onConfirm: () => { void confirmDeleteStatus() },
+                          onClose: closeModal,
+                        })
+                        : null)
               : null,
           ])
           : null,

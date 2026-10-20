@@ -3,7 +3,7 @@
  *
  * The panel is a `dsh.client` bundle, and `host.call` / `styles.insert` belong
  * to the `cordis_run` dynamic-plugin runtime, so neither is available to it.
- * A Typert Remote is the one supported bridge: this service publishes four
+ * A Typert Remote is the one supported bridge: this service publishes seven
  * methods, the gateway exposes them as `ctx.get('remote').hub.*` in the page,
  * and the panel reads that carrier lazily on every use.
  *
@@ -129,17 +129,21 @@ export class HubRemote extends TypertRemoteService {
   }
 
   /**
-   * Every stored item.
+   * Every stored item, and the status definitions they are filed under.
    *
    * The whole document travels, images included: `list` is the Client's only
    * read, and the panel never re-reads per item. Queries over the result are
    * the Client's alone (DESIGN §6).
    *
-   * @returns `{ version, items }`.
+   * @returns `{ version, items, statuses }`.
    */
   list() {
     try {
-      return { version: this.store.document.version, items: this.store.list() }
+      return {
+        version: this.store.document.version,
+        items: this.store.list(),
+        statuses: this.store.statuses(),
+      }
     }
     catch (error) {
       rethrow(error)
@@ -193,6 +197,62 @@ export class HubRemote extends TypertRemoteService {
   remove(id) {
     try {
       return this.store.remove(id)
+    }
+    catch (error) {
+      rethrow(error)
+    }
+  }
+
+  /**
+   * Store one new status.
+   *
+   * The clock travels with the call, so the status and the items filed under it
+   * are stamped from one moment.
+   *
+   * @param draft `{ label, tone?, done? }`; the Host mints the `id`.
+   * @returns The stored status.
+   */
+  createStatus(draft) {
+    try {
+      return this.store.createStatus(draft, new Date())
+    }
+    catch (error) {
+      rethrow(error)
+    }
+  }
+
+  /**
+   * Change the fields named by `patch`.
+   *
+   * The clock travels with the call because flipping a status's terminal flag
+   * re-stamps the items carrying it.
+   *
+   * @param id The status's id.
+   * @param patch The fields to change — `label`, `tone`, `done` or `order`.
+   * @returns The rewritten status.
+   */
+  updateStatus(id, patch) {
+    try {
+      return this.store.updateStatus(id, patch, new Date())
+    }
+    catch (error) {
+      rethrow(error)
+    }
+  }
+
+  /**
+   * Delete one status.
+   *
+   * Published as the wire method `deleteStatus`: the service's own name for
+   * the pair is `removeStatus`, mirroring the `remove`/`delete` pair above
+   * (`lib/remote-surface.js`).
+   *
+   * @param id The status's id.
+   * @returns The deleted status, so the panel can offer an undo.
+   */
+  removeStatus(id) {
+    try {
+      return this.store.removeStatus(id)
     }
     catch (error) {
       rethrow(error)
