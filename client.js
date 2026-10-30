@@ -85,6 +85,8 @@ window.__ModuleLoader__.load({
       'action.add': '添加',
       'action.moveUp': '上移',
       'action.moveDown': '下移',
+      'action.export': '导出',
+      'action.import': '导入',
       'tab.todo': 'TODO',
       'tab.note': 'Note',
       'tab.prompt': 'Prompt',
@@ -173,6 +175,25 @@ window.__ModuleLoader__.load({
       'size.bytes': 'B',
       'size.kib': 'KB',
       'size.mib': 'MB',
+      'transfer.scope': '范围',
+      'transfer.scope.tab': '当前标签',
+      'transfer.scope.all': '全部',
+      'transfer.format': '格式',
+      'transfer.format.json': 'JSON',
+      'transfer.format.markdown': 'Markdown',
+      'transfer.export.hint': '导出内容与 store.json 同构：version、items、statuses。',
+      'transfer.import.hint': '从导出的 JSON 读入条目：id 已存在的条目会被更新，新 id 的条目会被创建。',
+      'transfer.chooseFile': '选择文件',
+      'transfer.import.ready': '待导入',
+      'transfer.import.new': '新建',
+      'transfer.import.update': '更新',
+      'transfer.import.empty': '这个文件里没有条目。',
+      'transfer.import.unreadable': '读不出这个文件：它不是 Hub 导出的 JSON。',
+      'transfer.imported': '导入完成',
+      'transfer.result.ok': '成功',
+      'transfer.result.failed': '失败',
+      'region.folded': '已折叠',
+      'region.unfolded': '已展开',
     }
 
     const EN = {
@@ -198,6 +219,8 @@ window.__ModuleLoader__.load({
       'action.add': 'Add',
       'action.moveUp': 'Move up',
       'action.moveDown': 'Move down',
+      'action.export': 'Export',
+      'action.import': 'Import',
       'tab.todo': 'TODO',
       'tab.note': 'Note',
       'tab.prompt': 'Prompt',
@@ -286,6 +309,25 @@ window.__ModuleLoader__.load({
       'size.bytes': 'B',
       'size.kib': 'KB',
       'size.mib': 'MB',
+      'transfer.scope': 'Scope',
+      'transfer.scope.tab': 'Current tab',
+      'transfer.scope.all': 'Everything',
+      'transfer.format': 'Format',
+      'transfer.format.json': 'JSON',
+      'transfer.format.markdown': 'Markdown',
+      'transfer.export.hint': 'The export carries the shape store.json does: version, items, statuses.',
+      'transfer.import.hint': 'Reads entries from an exported JSON file: a known id is updated, a new id is created.',
+      'transfer.chooseFile': 'Choose a file',
+      'transfer.import.ready': 'To import',
+      'transfer.import.new': 'New',
+      'transfer.import.update': 'Update',
+      'transfer.import.empty': 'This file holds no entries.',
+      'transfer.import.unreadable': 'This file could not be read: it is not a Hub JSON export.',
+      'transfer.imported': 'Import finished',
+      'transfer.result.ok': 'Imported',
+      'transfer.result.failed': 'Failed',
+      'region.folded': 'collapsed',
+      'region.unfolded': 'expanded',
     }
 
     /* ==================================================================== *
@@ -364,6 +406,14 @@ window.__ModuleLoader__.load({
         { t: 'path', a: { d: 'M4 8h9M17.5 8H20M4 16h3.5M12 16h8' } },
         { t: 'circle', a: { cx: 15, cy: 8, r: 2.2 } },
         { t: 'circle', a: { cx: 9.5, cy: 16, r: 2.2 } },
+      ],
+      exportFile: [
+        { t: 'path', a: { d: 'M12 15.5v-11M12 4.5l-3.5 3.5M12 4.5l3.5 3.5' } },
+        { t: 'path', a: { d: 'M4.5 13v5.5a1 1 0 0 0 1 1h13a1 1 0 0 0 1-1V13' } },
+      ],
+      importFile: [
+        { t: 'path', a: { d: 'M12 8.5v11M12 19.5l-3.5-3.5M12 19.5l3.5-3.5' } },
+        { t: 'path', a: { d: 'M4.5 11V5.5a1 1 0 0 1 1-1h13a1 1 0 0 1 1 1V11' } },
       ],
     }
 
@@ -838,6 +888,18 @@ window.__ModuleLoader__.load({
 }
 
 /* --------------------------------------------------------------------------
+   The live region. A fold is a state change with no visible text of its own,
+   so the announcement is made here rather than read off the header: the
+   header already carries aria-expanded, and a screen reader that is looking
+   at the list is not looking at the button that moved.
+   -------------------------------------------------------------------------- */
+.hub-live {
+  position: absolute; width: 1px; height: 1px;
+  margin: -1px; padding: 0; border: 0;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+}
+
+/* --------------------------------------------------------------------------
    Groups: a label, a hairline that runs to the gutter, and a count. The rule
    is the structural device — it says "these belong together" without drawing
    a box around them.
@@ -870,6 +932,9 @@ window.__ModuleLoader__.load({
    .hub-groups instead, inside the clip.
    -------------------------------------------------------------------------- */
 .hub-regions { display: flex; flex-direction: column; }
+/* The empty height a windowed list leaves out, so the scroll range still
+   describes the whole list and the scrollbar stays where the content is. */
+.hub-spacer { flex: 0 0 auto; }
 .hub-region-head {
   display: flex; align-items: center; gap: 8px; width: 100%;
   margin-top: 10px; padding: 5px 4px;
@@ -1102,6 +1167,23 @@ window.__ModuleLoader__.load({
    The status manager: one row per definition, and a row that adds one.
    -------------------------------------------------------------------------- */
 .hub-hint { color: var(--hub-ink-3); font-size: 11px; line-height: 1.5; }
+/* The import report: one row per entry, the failures carrying their reason.
+   A summary line alone would leave the user counting a long import by hand. */
+.hub-result { display: flex; flex-direction: column; gap: 1px; }
+.hub-result-row {
+  display: flex; align-items: baseline; gap: 6px;
+  padding: 3px 6px; border-radius: 6px;
+  color: var(--hub-ink-2); font-size: 11.5px;
+}
+.hub-result-row[data-ok="false"] { color: var(--dsw-alias-state-error-primary); }
+.hub-result-mark { display: flex; flex: 0 0 auto; color: var(--hub-ink-3); }
+.hub-result-row[data-ok="false"] .hub-result-mark { color: var(--dsw-alias-state-error-primary); }
+.hub-result-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hub-result-reason { color: var(--hub-ink-3); font-size: 10.5px; }
+.hub-file-name {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--hub-ink-2); font-size: 11.5px;
+}
 .hub-status-list { display: flex; flex-direction: column; gap: 5px; }
 .hub-status-block { display: flex; flex-direction: column; gap: 4px; }
 .hub-status-row {
@@ -1308,6 +1390,10 @@ window.__ModuleLoader__.load({
   margin: 0 -2px; padding: 0 2px;
 }
 .hub-modal-actions { display: flex; align-items: center; justify-content: flex-end; gap: 7px; }
+/* The dialog container is focused only to take the focus off the page behind
+   it, so it wears no ring of its own: the control the user tabs to is the one
+   that should be marked. */
+.hub-modal:focus-visible { outline: none; }
 
 .hub-field { display: flex; flex-direction: column; gap: 5px; }
 .hub-label {
@@ -1837,6 +1923,10 @@ window.__ModuleLoader__.load({
         // The status definitions the Host sent. They are the Host's bytes, so
         // the panel keeps exactly what arrived and never a list of its own.
         statuses: [],
+        // The document's schema version, which rides the `list` envelope and is
+        // what an export writes back out: an export is a store.json, so it
+        // carries the same version the document it came from does.
+        version: 0,
         failure: null,
         busy: false,
         queries: initialQueries(),
@@ -1858,7 +1948,14 @@ window.__ModuleLoader__.load({
         case 'load/start':
           return { ...state, phase: 'loading', failure: null }
         case 'load/ok':
-          return { ...state, phase: 'ready', items: action.items, statuses: action.statuses, failure: null }
+          return {
+            ...state,
+            phase: 'ready',
+            items: action.items,
+            statuses: action.statuses,
+            version: action.version,
+            failure: null,
+          }
         case 'load/broken':
           return { ...state, phase: 'broken', items: [], failure: action.failure }
         case 'load/fail':
@@ -2386,6 +2483,142 @@ window.__ModuleLoader__.load({
      * 7. Components
      * ==================================================================== */
 
+    /* --- Windowed rendering ------------------------------------------------
+     * A long list is drawn as a window rather than in full. The body is one
+     * scroll container over regions, groups and rows, so the window is taken
+     * against that one scroll and everything outside it is replaced by empty
+     * height. It is the same components with a slice — the skeletons, the
+     * motion and the fold behaviour are the windowed path's too. */
+
+    /**
+     * Items below which the whole list is drawn.
+     *
+     * Windowing costs a layout walk, an estimated row pitch and a scroll
+     * listener, and it pays for itself only once the DOM is the bottleneck:
+     * below this the whole list is cheaper to draw than to measure.
+     */
+    const WINDOW_THRESHOLD = 200
+
+    /** Rows drawn above and below the window, so a fast scroll is never blank. */
+    const WINDOW_OVERSCAN = 8
+
+    /**
+     * The estimated pitch of one row, per view.
+     *
+     * An estimate, and the one number here that starts unmeasured: the window
+     * is placed by it, so a list whose rows are taller than this renders a
+     * little late and a shorter one a little early. It is corrected once
+     * against the rows actually drawn (see `HubPanelEntry`), and the overscan
+     * is what absorbs the difference until then.
+     */
+    const ROW_PITCH = { grid: 112, list: 70 }
+
+    /** The heights the layout walk charges for the two kinds of header. */
+    const REGION_HEAD_HEIGHT = 34
+    const GROUP_HEAD_HEIGHT = 30
+
+    /**
+     * The viewport the window opens with.
+     *
+     * The body is measured as soon as it is laid out; this is what the first
+     * paint of a long list uses, and it is the panel's own height less its
+     * header and meta row.
+     */
+    const FALLBACK_VIEWPORT = 470
+
+    /**
+     * The slice of the panel the window covers.
+     *
+     * The walk charges every header and row its estimated pitch, keeps the
+     * blocks that overlap `[reach, limit]`, and records the gap in front of
+     * each kept block. Those gaps are drawn as empty boxes, so the scroll range
+     * still describes the whole list and the scrollbar stays where the content
+     * is. A block outside the window is skipped whole rather than measured,
+     * which is what keeps a thousand-item list from costing a thousand-item
+     * walk.
+     *
+     * @param regions The regions `runRegions` produced.
+     * @param view The active view, which picks the row pitch.
+     * @param openRegions The persisted fold map.
+     * @param scrollTop The body's scroll offset.
+     * @param viewport The body's height.
+     * @param pitch The row pitch to charge, corrected or estimated.
+     * @returns `{ height, tail, regions }`, or `null` when nothing is drawn.
+     */
+    function windowLayout(regions, view, openRegions, scrollTop, viewport, pitch) {
+      const row = pitch ?? ROW_PITCH[view] ?? ROW_PITCH.grid
+      const reach = scrollTop - WINDOW_OVERSCAN * row
+      const limit = scrollTop + viewport + WINDOW_OVERSCAN * row
+      const drawn = []
+      let offset = 0
+      // The bottom of the last block actually drawn, so the gap recorded in
+      // front of the next one is the height the skipped blocks left behind.
+      let placed = 0
+      for (const region of regions) {
+        const labelled = region.status !== null && region.status !== undefined
+        const regionTop = offset
+        const regionHeadEnd = labelled ? regionTop + REGION_HEAD_HEIGHT : regionTop
+        if (labelled) offset = regionHeadEnd
+        // A folded region keeps its header and nothing else, exactly as the
+        // unfolded render does.
+        const open = !labelled || openRegions[region.id] === true
+        const groups = []
+        if (open) {
+          for (const group of region.groups) {
+            const headed = !(group.labelKey === null && group.label === undefined)
+            const groupTop = offset
+            const groupHeadEnd = headed ? groupTop + GROUP_HEAD_HEIGHT : groupTop
+            if (headed) offset = groupHeadEnd
+            const rowsTop = offset
+            const rowsEnd = rowsTop + group.items.length * row
+            offset = rowsEnd
+            if (rowsEnd < reach || rowsTop > limit) continue
+            const start = Math.max(0, Math.min(
+              group.items.length - 1,
+              Math.floor((reach - rowsTop) / row),
+            ))
+            const end = Math.min(
+              group.items.length,
+              Math.max(start + 1, Math.ceil((limit - rowsTop) / row)),
+            )
+            const drawHead = headed && groupHeadEnd > reach
+            const headPad = Math.max(0, (drawHead ? groupTop : groupHeadEnd) - placed)
+            placed = groupHeadEnd
+            groups.push({
+              group,
+              drawHead,
+              headPad,
+              rowsPad: Math.max(0, rowsTop - placed),
+              start,
+              end,
+            })
+            placed = rowsTop + (end - start) * row
+          }
+        }
+        if (regionTop > limit || offset < reach) continue
+        const drawHead = labelled && regionHeadEnd > reach
+        // A region whose header has scrolled past and whose rows are all
+        // outside the window has nothing to draw. Skipping it leaves its whole
+        // height to the gap in front of the next block that is drawn.
+        if (!drawHead && groups.length === 0) continue
+        const headPad = Math.max(0, (drawHead ? regionTop : regionHeadEnd) - placed)
+        placed = regionHeadEnd
+        drawn.push({ region, labelled, open, drawHead, headPad, groups })
+      }
+      if (drawn.length === 0) return null
+      return { height: offset, tail: Math.max(0, offset - placed), regions: drawn }
+    }
+
+    /** Empty height, so a windowed list keeps the scroll range it would have. */
+    function Spacer(props) {
+      if (!(props.height > 0)) return null
+      return h('div', {
+        className: 'hub-spacer',
+        style: { height: `${props.height}px` },
+        'aria-hidden': 'true',
+      })
+    }
+
     /** Icon-only control; the label is the accessible name and the tooltip. */
     function IconButton(props) {
       return h('button', {
@@ -2407,10 +2640,14 @@ window.__ModuleLoader__.load({
      * null ref and never observe the node that appears later. React calls this
      * with null on detach, which is where the old observer is released.
      *
-     * @returns `[ref, width]`.
+     * The height travels with the width because the body is the scroll
+     * container the windowed list takes its viewport from: one observer, one
+     * node, both numbers the layout needs.
+     *
+     * @returns `[ref, width, height]`.
      */
     function useMeasuredWidth() {
-      const [width, setWidth] = useState(0)
+      const [box, setBox] = useState({ width: 0, height: 0 })
       const observer = useRef(null)
       const ref = useCallback(node => {
         if (observer.current !== null) {
@@ -2418,21 +2655,27 @@ window.__ModuleLoader__.load({
           observer.current = null
         }
         if (node === null) return
+        const measure = () => {
+          const rect = node.getBoundingClientRect()
+          setBox({ width: rect.width, height: rect.height })
+        }
         if (typeof ResizeObserver === 'undefined') {
-          setWidth(node.getBoundingClientRect().width)
+          measure()
           return
         }
         const created = new ResizeObserver(entries => {
-          for (const entry of entries) setWidth(entry.contentRect.width)
+          for (const entry of entries) {
+            setBox({ width: entry.contentRect.width, height: entry.contentRect.height })
+          }
         })
         created.observe(node)
         observer.current = created
-        setWidth(node.getBoundingClientRect().width)
+        measure()
       }, [])
       useEffect(() => () => {
         if (observer.current !== null) observer.current.disconnect()
       }, [])
-      return [ref, width]
+      return [ref, box.width, box.height]
     }
 
     /** Human byte size; the only place the unit suffixes are produced. */
@@ -2497,6 +2740,309 @@ window.__ModuleLoader__.load({
         })
         reader.readAsDataURL(file)
       })
+    }
+
+    /** One picked file as text, for an import. */
+    function readTextFile(file) {
+      // `File.text()` where the engine has it and the reader where it does not:
+      // the picker is the platform's, so the file it hands back is the
+      // platform's too, and the two name the same operation differently.
+      if (typeof file?.text === 'function') return file.text()
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onerror = () => reject(new Error(`could not read "${file.name}"`))
+        reader.onload = () => resolve(String(reader.result ?? ''))
+        reader.readAsText(file)
+      })
+    }
+
+    /* --- Import and export ---------------------------------------------------
+     * Both halves go through the Remote that is already there: an export is
+     * built from what `list` returned, and an import is one `create` or
+     * `update` per entry. There is no second data path and no new method — a
+     * transfer feature that needed one would be a feature the bridge could not
+     * carry. */
+
+    /** ISO-8601 of an epoch value, or `''` when there is no such moment. */
+    function isoFromEpoch(epoch) {
+      if (!Number.isFinite(epoch) || epoch <= 0) return ''
+      return new Date(epoch).toISOString()
+    }
+
+    /**
+     * The §5 shape of one normalized item, as the Host stores it.
+     *
+     * The panel holds a derived view of every item — a name, a byte total, a
+     * search haystack — and none of that is the document's. An export is a
+     * store.json, so it is rebuilt from the fields the model defines and the
+     * derived ones are left out rather than written where the Host would only
+     * drop them.
+     *
+     * `completedAt` travels even though an update refuses it: a create honours
+     * it, so a restored TODO keeps the moment it was finished instead of being
+     * stamped with the moment it was restored.
+     *
+     * @param item One normalized item.
+     * @returns The item as the document holds it.
+     */
+    function toStoredItem(item) {
+      const files = item.files.map(file => ({
+        name: file.name,
+        size: dataUrlBytes(file.dataUrl),
+        dataUrl: file.dataUrl,
+      }))
+      const stored = { id: item.id, kind: item.kind, title: item.title }
+      // An item whose timestamp the Host could not parse has none to keep, and
+      // an empty string is not one: leaving the key out is what lets the Host
+      // stamp it rather than refuse it.
+      const created = isoFromEpoch(item.createdAt)
+      const updated = isoFromEpoch(item.updatedAt)
+      if (created !== '') stored.createdAt = created
+      if (updated !== '') stored.updatedAt = updated
+      if (item.kind === 'todo') {
+        stored.description = item.content
+        stored.category = item.category
+        stored.priority = item.priority
+        stored.status = item.status
+        const completed = isoFromEpoch(item.completedAt)
+        // `''` is what the document carries for an unfinished task, and an empty
+        // stamp is only *read* for a terminal one — where it would be refused.
+        // So an unfinished task writes its empty stamp, and a finished one with
+        // no stamp of its own writes nothing and lets the Host stamp it as it
+        // was created.
+        if (completed !== '' || item.done !== true) stored.completedAt = completed
+        stored.attachments = files
+        stored.note = item.note
+        return stored
+      }
+      stored.text = item.content
+      stored.images = files
+      return stored
+    }
+
+    /**
+     * One kind's items as a Markdown document.
+     *
+     * The item's name is the heading, because that is what the panel shows and
+     * what a reader scans for; what the panel knows about it follows as one
+     * meta line and then the body.
+     *
+     * @param items The kind's items, in the order the panel lists them.
+     * @param kind The kind they belong to.
+     * @returns The document.
+     */
+    function toMarkdown(items, kind) {
+      const lines = [
+        `# ${translate('panel.title')}`,
+        '',
+        `## ${translate(KIND_LABEL_KEY[kind])} — ${items.length} ${translate('count.unit')}`,
+        '',
+      ]
+      for (const item of items) {
+        lines.push(`### ${item.name === '' ? translate('state.untitled') : item.name}`)
+        const meta = []
+        if (kind === 'todo') {
+          meta.push(`${translate('field.priority')} ${translate(`priority.${item.priority}`)}`)
+          if (item.category !== '') meta.push(`${translate('field.category')} ${item.category}`)
+          if (item.statusDef !== null) meta.push(`${translate('field.status')} ${statusText(item.statusDef)}`)
+        }
+        const created = formatTime(item.createdAt)
+        const updated = formatTime(item.updatedAt)
+        if (created !== '') meta.push(`${translate('meta.created')} ${created}`)
+        if (updated !== '') meta.push(`${translate('meta.updated')} ${updated}`)
+        if (meta.length > 0) lines.push(meta.join(' — '))
+        if (item.content !== '') lines.push('', item.content)
+        // The note is what the user wrote about the item rather than in it, so
+        // it reads as a quotation under the body.
+        if (item.note !== '') lines.push('', `> ${item.note}`)
+        if (item.files.length > 0) {
+          lines.push('', `${translate('meta.files')}:`, ...item.files.map(file => `- ${file.name}`))
+        }
+        lines.push('')
+      }
+      return `${lines.join('\n')}\n`
+    }
+
+    /**
+     * Hand a file to the browser's own download.
+     *
+     * A blob URL and an anchor the panel never keeps: the file is the user's,
+     * and the panel's job is to put it somewhere they can pick it up.
+     *
+     * @param name The name to save under.
+     * @param mime The media type.
+     * @param text The file's contents.
+     */
+    function downloadFile(name, mime, text) {
+      const url = URL.createObjectURL(new Blob([text], { type: mime }))
+      const link = document.createElement('a')
+      link.href = url
+      link.download = name
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      URL.revokeObjectURL(url)
+    }
+
+    /**
+     * What an import would do, counted before it does it.
+     *
+     * Counted from the ids the panel already holds, because that is what
+     * decides create against update, and the panel is the only side that knows
+     * which of the file's ids the store already has.
+     *
+     * @param items The file's entries.
+     * @param statuses The file's status definitions.
+     * @param itemsById The stored items, keyed by id.
+     * @param statusIds The stored status ids.
+     * @returns The counts the confirm step shows.
+     */
+    function countImport(items, statuses, itemsById, statusIds) {
+      const count = (list, known) => list.reduce((totals, entry) => {
+        const key = String(entry.id ?? '')
+        if (key !== '' && known.has(key)) totals.updates += 1
+        else totals.creates += 1
+        return totals
+      }, { creates: 0, updates: 0 })
+      return {
+        items: count(items, new Set(itemsById.keys())),
+        statuses: count(statuses, statusIds),
+      }
+    }
+
+    /**
+     * The patch a status import sends for a definition the store already has.
+     *
+     * `order` travels with it, so an import restores the list's order and not
+     * only its contents. A definition the file renames takes the text and gives
+     * up its locale key — the same rule the manager follows — and one it leaves
+     * alone is sent no label at all, so it keeps following the application.
+     *
+     * @param raw The file's definition.
+     * @param index Its position in the file.
+     * @returns The patch.
+     */
+    function statusPatch(raw, index) {
+      const patch = { order: index }
+      const label = typeof raw.label === 'string' ? raw.label.trim() : ''
+      if (label !== '') patch.label = label
+      if (typeof raw.tone === 'string' && TONES.includes(raw.tone)) patch.tone = raw.tone
+      if (typeof raw.done === 'boolean') patch.done = raw.done
+      return patch
+    }
+
+    /**
+     * The draft a status import sends for a definition the store does not have.
+     *
+     * The Host mints the id, so the file's id is only a name the entries point
+     * at until this lands; `statusMap` records what it became. A definition
+     * that carries a locale key and no text of its own is created from the
+     * translated key, because a new definition has no key to fall back on.
+     *
+     * @param raw The file's definition.
+     * @returns The draft.
+     */
+    function statusDraft(raw) {
+      const label = typeof raw.label === 'string' ? raw.label.trim() : ''
+      const key = typeof raw.labelKey === 'string' ? raw.labelKey : ''
+      const draft = { label: label !== '' ? label : translate(key) }
+      if (typeof raw.tone === 'string' && TONES.includes(raw.tone)) draft.tone = raw.tone
+      if (typeof raw.done === 'boolean') draft.done = raw.done
+      return draft
+    }
+
+    /**
+     * The status an imported entry names, after the definitions have landed.
+     *
+     * @param raw The file's entry.
+     * @param statusMap File status id to the id the store gave it.
+     * @returns The status id to write, or `undefined` when the entry names none.
+     */
+    function importedStatus(raw, statusMap) {
+      if (typeof raw.status !== 'string' || raw.status === '') return undefined
+      return statusMap[raw.status] ?? raw.status
+    }
+
+    /** One entry's files, in the shape the Host re-measures them from. */
+    function importedFiles(raw, kind) {
+      const list = kind === 'todo' ? raw.attachments : raw.images
+      if (!Array.isArray(list)) return undefined
+      return list
+        .filter(file => file !== null && typeof file === 'object')
+        // `mime` and `size` are left out on purpose: the Host reads both off
+        // the data URL, and a file whose declared size disagrees with its
+        // payload is refused rather than repaired.
+        .map(file => ({ name: String(file.name ?? ''), dataUrl: String(file.dataUrl ?? '') }))
+    }
+
+    /**
+     * The create payload for one imported entry.
+     *
+     * `id`, `kind` and the timestamps travel because a restore is meant to
+     * restore: an entry that comes back with a new id is a duplicate, and one
+     * that comes back stamped now is a different entry. Everything else is the
+     * §5 field set, so a field this build has never heard of is dropped here
+     * exactly as the Host would drop it.
+     *
+     * @param raw The file's entry.
+     * @param statusMap File status id to the id the store gave it.
+     * @returns The payload.
+     */
+    function createPayload(raw, statusMap) {
+      const kind = typeof raw.kind === 'string' ? raw.kind : ''
+      const payload = {}
+      if (typeof raw.id === 'string' && raw.id !== '') payload.id = raw.id
+      if (kind !== '') payload.kind = kind
+      if (typeof raw.title === 'string') payload.title = raw.title
+      const content = kind === 'todo' ? 'description' : 'text'
+      if (typeof raw[content] === 'string') payload[content] = raw[content]
+      if (typeof raw.category === 'string') payload.category = raw.category
+      if (typeof raw.priority === 'string') payload.priority = raw.priority
+      const status = importedStatus(raw, statusMap)
+      if (status !== undefined) payload.status = status
+      if (typeof raw.note === 'string') payload.note = raw.note
+      const files = importedFiles(raw, kind)
+      if (files !== undefined) payload[kind === 'todo' ? 'attachments' : 'images'] = files
+      for (const field of ['createdAt', 'updatedAt', 'completedAt']) {
+        if (typeof raw[field] === 'string' && raw[field] !== '') payload[field] = raw[field]
+      }
+      return payload
+    }
+
+    /**
+     * The update payload for one imported entry.
+     *
+     * `id`, `kind` and `createdAt` are provenance and an update refuses them,
+     * and `updatedAt` and `completedAt` are the Host's to stamp — so only the
+     * content fields travel. An import that moves an entry between statuses
+     * does it here, the same way the badge does.
+     *
+     * @param raw The file's entry.
+     * @param existing The stored item the id names.
+     * @param statusMap File status id to the id the store gave it.
+     * @returns The payload.
+     */
+    function updatePayload(raw, existing, statusMap) {
+      const kind = existing.kind
+      const payload = {}
+      if (typeof raw.title === 'string') payload.title = raw.title
+      const content = kind === 'todo' ? 'description' : 'text'
+      if (typeof raw[content] === 'string') payload[content] = raw[content]
+      if (typeof raw.category === 'string') payload.category = raw.category
+      if (typeof raw.priority === 'string') payload.priority = raw.priority
+      const status = importedStatus(raw, statusMap)
+      if (status !== undefined) payload.status = status
+      if (typeof raw.note === 'string') payload.note = raw.note
+      const files = importedFiles(raw, kind)
+      if (files !== undefined) payload[kind === 'todo' ? 'attachments' : 'images'] = files
+      // A file that renames an entry's kind is sent the kind rather than
+      // quietly dropped: an update cannot change it, and writing the other
+      // kind's content field would silently do nothing. The Host refuses it
+      // with the reason, which is where that rule lives.
+      if (typeof raw.kind === 'string' && KINDS.includes(raw.kind) && raw.kind !== kind) {
+        payload.kind = raw.kind
+      }
+      return payload
     }
 
     /* --- The two loading skeletons, kept genuinely apart (DESIGN.md §8). ---
@@ -2980,39 +3526,99 @@ window.__ModuleLoader__.load({
       ])
     }
 
-    /** One group of items: a rule-and-count header when it has a label. */
+    /**
+     * The class a node carries, whether it is a DOM node or a rendered element.
+     *
+     * The arrow-key walk reads the list's own children, and this file is also
+     * rendered by a harness whose "DOM" is the element tree — so the two are
+     * asked the same question here rather than in two places.
+     *
+     * @param node A DOM node or a rendered element.
+     * @returns The class string, or `undefined`.
+     */
+    function classOf(node) {
+      return typeof node?.className === 'string' ? node.className : node?.props?.className
+    }
+
+    /**
+     * Move focus along one list's rows with the arrow keys.
+     *
+     * The grid walks by the column count, so up and down cross a row rather
+     * than the whole column of a wrapping grid; the list walks by one row
+     * either way. Focus moves only among the rows that are drawn, which for a
+     * windowed list is the window — the rows past it are not on screen to move
+     * to, and a walk that promised them would strand the focus.
+     *
+     * @param event The key event, whose target is the focused row.
+     * @param stride Rows one vertical step covers.
+     */
+    function moveFocus(event, stride) {
+      const step = event.key === 'ArrowRight' ? 1
+        : event.key === 'ArrowLeft' ? -1
+          : event.key === 'ArrowDown' ? stride
+            : event.key === 'ArrowUp' ? -stride
+              : 0
+      if (step === 0) return
+      const container = event?.currentTarget
+      if (container === null || container === undefined) return
+      const rows = [...(container.children ?? [])].filter(child => {
+        const name = classOf(child)
+        return name === 'hub-card' || name === 'hub-row'
+      })
+      const current = rows.indexOf(event.target)
+      if (current === -1) return
+      const next = current + step
+      if (next < 0 || next >= rows.length) return
+      // The arrow's own job is to scroll, and the panel body is what it would
+      // scroll: focus is already moving, so the page must not move under it.
+      event.preventDefault()
+      rows[next].focus?.()
+    }
+
+    /**
+     * One group of items: a rule-and-count header when it has a label.
+     *
+     * `slice` is the windowed view of this group — which of its rows are drawn
+     * and the empty height around them. It is absent for every list below the
+     * windowing threshold, which is the same code drawing every row.
+     */
     function GroupSection(props) {
       const group = props.group
+      const slice = props.slice ?? null
+      const start = slice === null ? 0 : slice.start
+      const end = slice === null ? group.items.length : slice.end
+      const headed = !(group.labelKey === null && group.label === undefined)
+      const drawHead = headed && (slice === null || slice.drawHead)
+      const items = group.items.slice(start, end)
+      // The grid's column count follows the measured width, the same number
+      // the skeleton uses, so the walk crosses a row the way the row is drawn.
+      const stride = props.view === 'grid' ? Math.max(1, props.columns ?? 1) : 1
+      const onKeyDown = event => moveFocus(event, stride)
+      const rows = Item => items.map((item, index) => Item({
+        key: item.id,
+        item,
+        // The position in the group, not in the window: the arrival stagger is
+        // a fact about the list, and slicing it would re-stagger a scroll.
+        index: start + index,
+        onOpen: props.onOpen,
+        onStatus: props.onStatus,
+        onCopy: props.onCopy,
+        onDelete: props.onDelete,
+      }))
       return h('section', { className: 'hub-group' }, [
-        group.labelKey === null && group.label === undefined
-          ? null
-          : h('div', { key: 'h', className: 'hub-group-head' }, [
+        slice === null ? null : Spacer({ key: 'sh', height: slice.headPad }),
+        drawHead
+          ? h('div', { key: 'h', className: 'hub-group-head' }, [
             h('span', { key: 'l' }, group.labelKey === null ? group.label : translate(group.labelKey)),
             h('span', { key: 'r', className: 'hub-group-rule' }),
             h('span', { key: 'c', className: 'hub-group-count' },
               `${group.items.length} ${translate('count.unit')}`),
-          ]),
+          ])
+          : null,
+        slice === null ? null : Spacer({ key: 'sr', height: slice.rowsPad }),
         props.view === 'grid'
-          ? h('div', { key: 'g', className: 'hub-grid' },
-            group.items.map((item, index) => ItemCard({
-              key: item.id,
-              item,
-              index,
-              onOpen: props.onOpen,
-              onStatus: props.onStatus,
-              onCopy: props.onCopy,
-              onDelete: props.onDelete,
-            })))
-          : h('div', { key: 'g', className: 'hub-rows' },
-            group.items.map((item, index) => ItemRow({
-              key: item.id,
-              item,
-              index,
-              onOpen: props.onOpen,
-              onStatus: props.onStatus,
-              onCopy: props.onCopy,
-              onDelete: props.onDelete,
-            }))),
+          ? h('div', { key: 'g', className: 'hub-grid', onKeyDown }, rows(ItemCard))
+          : h('div', { key: 'g', className: 'hub-rows', onKeyDown }, rows(ItemRow)),
       ])
     }
 
@@ -3030,6 +3636,10 @@ window.__ModuleLoader__.load({
      * A region with no status — every Note and Prompt — draws no header and
      * never folds: there is one list there, and a header over it would say
      * nothing.
+     *
+     * `slice` is the windowed view of this region: whether its header is still
+     * on screen, and which of its groups are drawn with what gaps around them.
+     * It is absent for every list below the windowing threshold.
      */
     function Region(props) {
       const region = props.region
@@ -3039,15 +3649,22 @@ window.__ModuleLoader__.load({
       // nothing to fold, so it is always open rather than folded to a header it
       // does not have.
       const open = !labelled || props.open === true
+      const slice = props.slice ?? null
       const shared = {
         view: props.view,
+        columns: props.columns,
         onOpen: props.onOpen,
         onStatus: props.onStatus,
         onCopy: props.onCopy,
         onDelete: props.onDelete,
       }
+      // A windowed region whose header has scrolled past draws its groups
+      // without it; the empty height the header would have taken is in the gap
+      // in front of the first group that is drawn.
+      const drawHead = labelled && (slice === null || slice.drawHead)
       return h('section', { className: 'hub-region', 'data-open': String(open) }, [
-        labelled
+        slice === null ? null : Spacer({ key: 'rh', height: slice.headPad }),
+        drawHead
           ? h('button', {
             key: 'h',
             type: 'button',
@@ -3067,19 +3684,111 @@ window.__ModuleLoader__.load({
         h('div', { key: 'b', className: 'hub-region-body' },
           h('div', { className: 'hub-region-inner' },
             h('div', { className: 'hub-groups' },
-              region.groups.map(group => GroupSection({ group, ...shared }))))),
+              (slice === null ? region.groups.map(group => ({ group, slice: null })) : slice.groups)
+                .map(entry => GroupSection({ group: entry.group, slice: entry, ...shared }))))),
       ])
+    }
+
+    /**
+     * The dialog's focusable controls, in tab order.
+     *
+     * A walk over the subtree rather than `querySelectorAll`, because this file
+     * is also rendered by a harness whose "DOM" is the element tree: both carry
+     * `children`, and only one of them carries `matches`.
+     *
+     * @param node The dialog, or any subtree of it.
+     * @returns The controls Tab may stop on, in document order.
+     */
+    function focusableIn(node) {
+      if (node === null || node === undefined) return []
+      const found = []
+      const walk = current => {
+        if (current === null || typeof current !== 'object') return
+        const tag = typeof current.tagName === 'string' ? current.tagName.toLowerCase() : current.type
+        const tabIndex = current.tabIndex ?? current.props?.tabIndex
+        const disabled = current.disabled === true || current.props?.disabled === true
+        // A row the panel made focusable itself — a card, a region header — is
+        // as tabbable as a button, and behind a scrim it is exactly what a trap
+        // has to keep the focus out of.
+        const focusable = Number(tabIndex) >= 0
+          ? true
+          : ['button', 'input', 'select', 'textarea'].includes(tag)
+        if (focusable && !disabled) found.push(current)
+        for (const child of current.children ?? []) walk(child)
+      }
+      walk(node)
+      return found
+    }
+
+    /**
+     * Hold Tab inside the dialog.
+     *
+     * The native walk is left alone except at the two edges: Tab off the last
+     * control comes back to the first, and Shift+Tab off the first goes to the
+     * last. Everything in between is the browser's own and is already right.
+     *
+     * @param event The key event on the dialog.
+     * @param node The dialog element.
+     */
+    function trapTab(event, node) {
+      if (event.key !== 'Tab') return
+      const focusable = focusableIn(node)
+      if (focusable.length === 0) return
+      const current = focusable.indexOf(event.target)
+      if (current === -1) return
+      const last = focusable.length - 1
+      if (!event.shiftKey && current === last) {
+        event.preventDefault()
+        focusable[0].focus?.()
+      }
+      else if (event.shiftKey && current === 0) {
+        event.preventDefault()
+        focusable[last].focus?.()
+      }
+    }
+
+    /**
+     * Move focus into a dialog when it opens, and back out when it closes.
+     *
+     * The container itself takes it rather than the first control: a delete
+     * confirmation that opens with Confirm focused answers Enter with the
+     * destructive branch, and a form that opens on its first field is no better
+     * than one that opens on nothing. Both halves are guarded because this file
+     * is also rendered without a DOM.
+     *
+     * @param dialog Ref to the dialog element.
+     */
+    function useFocusTrap(dialog) {
+      useEffect(() => {
+        const node = dialog.current
+        if (node === null || node === undefined) return
+        const previous = typeof document === 'undefined' ? undefined : document.activeElement
+        node.focus?.()
+        return () => { previous?.focus?.() }
+      }, [dialog])
     }
 
     /** The shared modal frame: a scrim, a title bar with the right-hand actions. */
     function Modal(props) {
+      // Focus is held inside the dialog while it is open and handed back to
+      // whatever opened it when it closes: a dialog that drops the focus on the
+      // page behind it is one the keyboard has already left.
+      const dialog = useRef(null)
+      useFocusTrap(dialog)
       return h('div', {
         className: 'hub-scrim',
         role: 'dialog',
         'aria-modal': 'true',
         'aria-label': props.title,
         onClick: event => { if (event.target === event.currentTarget) props.onClose() },
-      }, h('div', { className: 'hub-modal' }, [
+      }, h('div', {
+        className: 'hub-modal',
+        ref: dialog,
+        // Focusable so the trap has somewhere to put the focus that is not a
+        // control the user did not ask for.
+        tabIndex: -1,
+        onKeyDown: event => trapTab(event, dialog.current),
+      }, [
         h('div', { key: 'h', className: 'hub-modal-head' }, [
           h('span', { key: 't', className: 'hub-modal-title' }, props.title),
           props.headActions,
@@ -3224,6 +3933,11 @@ window.__ModuleLoader__.load({
               type: 'file',
               multiple: true,
               className: 'hub-input',
+              // A filter, not a validation: the Host still refuses what it does
+              // not recognise, and this only keeps the picker from offering a
+              // file the store would turn away (an SVG can carry a script, and
+              // every attachment is stored inline in the one document).
+              accept: 'image/png,image/jpeg,image/gif,image/webp',
               'aria-label': translate('action.attach'),
               onChange: event => props.onPickFiles(event.target.files),
             }),
@@ -3328,6 +4042,189 @@ window.__ModuleLoader__.load({
       }, [
         h('div', { key: 'n', className: 'hub-detail-name' }, props.name),
         h('div', { key: 'b', className: 'hub-detail-note' }, translate(props.bodyKey)),
+      ])
+    }
+
+    /** What an export covers: the tab in front of the user, or the whole store. */
+    const TRANSFER_SCOPES = [
+      { id: 'tab', labelKey: 'transfer.scope.tab' },
+      { id: 'all', labelKey: 'transfer.scope.all' },
+    ]
+
+    /** The two formats an export is written in. */
+    const TRANSFER_FORMATS = [
+      { id: 'json', labelKey: 'transfer.format.json' },
+      { id: 'markdown', labelKey: 'transfer.format.markdown' },
+    ]
+
+    /**
+     * The export dialog: what to cover, and what to write it as.
+     *
+     * Two radio rows rather than four buttons, because the two questions are
+     * independent — a Markdown of everything and a JSON of one tab are both
+     * things a user wants, and four buttons would ask them twice.
+     */
+    function ExportModal(props) {
+      return h(Modal, {
+        title: translate('modal.export'),
+        onClose: props.onClose,
+        actions: [
+          h('button', {
+            key: 'cancel',
+            type: 'button',
+            className: 'hub-text-button',
+            'data-quiet': 'true',
+            onClick: props.onClose,
+          }, translate('action.cancel')),
+          h('button', {
+            key: 'go',
+            type: 'button',
+            className: 'hub-text-button',
+            'data-primary': 'true',
+            onClick: props.onExport,
+          }, translate('action.export')),
+        ],
+      }, [
+        h('div', { key: 'h', className: 'hub-hint' }, translate('transfer.export.hint')),
+        ChoiceRow({
+          key: 's',
+          labelKey: 'transfer.scope',
+          choices: TRANSFER_SCOPES,
+          value: props.choice.scope,
+          onSelect: value => props.onChoice({ scope: value }),
+        }),
+        ChoiceRow({
+          key: 'f',
+          labelKey: 'transfer.format',
+          choices: TRANSFER_FORMATS,
+          value: props.choice.format,
+          onSelect: value => props.onChoice({ format: value }),
+        }),
+      ])
+    }
+
+    /**
+     * The import dialog: pick a file, see what it would do, then confirm.
+     *
+     * The file control is the one native control in the panel (DESIGN §8): the
+     * picker itself has to stay the platform's, and only its button is redrawn.
+     * It is restricted to what an export writes, which is a filter and not a
+     * validation — the Host still refuses what it does not recognise.
+     */
+    function ImportModal(props) {
+      const file = props.file
+      const readable = file !== null && file.error === undefined
+      const counts = readable
+        ? countImport(file.items, file.statuses, props.itemsById, props.statusIds)
+        : null
+      const total = counts === null
+        ? 0
+        : counts.items.creates + counts.items.updates + counts.statuses.creates + counts.statuses.updates
+      const ready = counts !== null && total > 0
+      // What the file holds, in the words the confirm button will act on. The
+      // definitions are counted with the entries because a restore that lost
+      // them would produce entries the store refuses.
+      const summary = counts === null ? null : [
+        `${translate('transfer.import.ready')} ${counts.items.creates + counts.items.updates} ${translate('count.unit')}`,
+        ' · ',
+        `${translate('transfer.import.new')} ${counts.items.creates}`,
+        ' · ',
+        `${translate('transfer.import.update')} ${counts.items.updates}`,
+        counts.statuses.creates + counts.statuses.updates === 0
+          ? null
+          : [
+            ' · ',
+            `${translate('status.manager')} ${counts.statuses.creates + counts.statuses.updates}`,
+            ' · ',
+            `${translate('transfer.import.new')} ${counts.statuses.creates}`,
+            ' · ',
+            `${translate('transfer.import.update')} ${counts.statuses.updates}`,
+          ],
+      ]
+      return h(Modal, {
+        title: translate('modal.import'),
+        onClose: props.onClose,
+        actions: [
+          h('button', {
+            key: 'cancel',
+            type: 'button',
+            className: 'hub-text-button',
+            'data-quiet': 'true',
+            onClick: props.onClose,
+          }, translate('action.cancel')),
+          h('button', {
+            key: 'go',
+            type: 'button',
+            className: 'hub-text-button',
+            'data-primary': 'true',
+            disabled: !ready || props.busy,
+            onClick: props.onImport,
+          }, translate('action.import')),
+        ],
+      }, [
+        h('div', { key: 'h', className: 'hub-hint' }, translate('transfer.import.hint')),
+        h(Field, { key: 'f', label: translate('transfer.chooseFile') },
+          h('input', {
+            key: 'input',
+            type: 'file',
+            className: 'hub-input',
+            accept: '.json,.md',
+            'aria-label': translate('transfer.chooseFile'),
+            onChange: event => props.onPickFiles(event.target.files),
+          })),
+        file === null
+          ? null
+          : h('div', { key: 'n', className: 'hub-file-name' }, file.name),
+        // Three states, and only one of them is a summary: no file yet says
+        // nothing, a file that is not an export says so, and one that holds
+        // nothing says that instead of offering an import of nothing.
+        file === null
+          ? null
+          : h('div', { key: 'm', className: 'hub-hint' }, file.error !== undefined
+            ? translate('transfer.import.unreadable')
+            : total === 0
+              ? translate('transfer.import.empty')
+              : summary),
+      ])
+    }
+
+    /**
+     * The import report: one line per entry, and the reason on every failure.
+     *
+     * A summary alone would leave the user counting a long import by hand, and
+     * a failure with no name is one they cannot find in the list afterwards.
+     */
+    function ImportResultModal(props) {
+      const result = props.result
+      return h(Modal, {
+        title: translate('modal.importResult'),
+        onClose: props.onClose,
+        actions: [
+          h('button', {
+            key: 'close',
+            type: 'button',
+            className: 'hub-text-button',
+            'data-primary': 'true',
+            onClick: props.onClose,
+          }, translate('action.close')),
+        ],
+      }, [
+        h('div', { key: 's', className: 'hub-hint' },
+          `${result.ok} ${translate('transfer.result.ok')} · ${result.failed} ${translate('transfer.result.failed')}`),
+        h('div', { key: 'l', className: 'hub-result' },
+          result.entries.map((entry, index) => h('div', {
+            key: index,
+            className: 'hub-result-row',
+            'data-ok': String(entry.ok),
+          }, [
+            h('span', { key: 'm', className: 'hub-result-mark' },
+              h(Icon, { name: entry.ok ? 'check' : 'warning', size: 12, width: 2 })),
+            h('span', { key: 'n', className: 'hub-result-name' },
+              entry.name === '' ? translate('state.untitled') : entry.name),
+            entry.ok
+              ? null
+              : h('span', { key: 'r', className: 'hub-result-reason' }, entry.error),
+          ]))),
       ])
     }
 
@@ -3461,7 +4358,21 @@ window.__ModuleLoader__.load({
       const [pinned, setPinned] = useState(false)
       const [menu, setMenu] = useState('none')
       const themePreference = useThemePreference()
-      const [gridRef, gridWidth] = useMeasuredWidth()
+      const [gridRef, gridWidth, bodyHeight] = useMeasuredWidth()
+      const [scrollTop, setScrollTop] = useState(0)
+      // The row pitch, per view, corrected once against the rows actually drawn.
+      const [pitch, setPitch] = useState(() => ({ ...ROW_PITCH }))
+      const pitchFixed = useRef({})
+      // What the fold changed, for the live region. A state, not a ref: the
+      // announcement is text the panel renders, and a ref would not redraw it.
+      const [announcement, setAnnouncement] = useState('')
+      // The transfer dialogs' own state: what the export dialog is set to, the
+      // file the import dialog has read, and what the last import did.
+      const [transfer, setTransfer] = useState({
+        export: { scope: 'tab', format: 'json' },
+        file: null,
+        result: null,
+      })
       const collapseTimer = useRef(null)
       const noticeTimer = useRef(null)
       // The surface the status popover is positioned against.
@@ -3513,8 +4424,9 @@ window.__ModuleLoader__.load({
           const envelope = await hubCall('list')
           const raw = Array.isArray(envelope) ? envelope : envelope?.items
           if (!Array.isArray(raw)) throw new Error('hub.list did not return an items array')
-          // `version` rides the envelope for a future compatibility rule; there
-          // is no defined one yet, so nothing here gates on it.
+          // `version` rides the envelope and is kept, not gated on: nothing
+          // here branches on it, and an export has to write the same one back
+          // out or the file it produces is a document from no build at all.
           //
           // A Host that predates the enum sends no list at all. That is an
           // empty list here rather than a crash: the panel still renders, and
@@ -3522,7 +4434,12 @@ window.__ModuleLoader__.load({
           const statuses = normalizeStatuses(envelope?.statuses)
           const index = new Map(statuses.map(status => [status.id, status]))
           const items = raw.map(item => normalizeItem(item, index)).filter(Boolean)
-          dispatch({ type: 'load/ok', items, statuses })
+          dispatch({
+            type: 'load/ok',
+            items,
+            statuses,
+            version: typeof envelope?.version === 'number' ? envelope.version : 0,
+          })
           const behind = missingHostFields(raw)
           if (behind.length > 0) {
             // The field names go in bare: they are schema identifiers, not
@@ -3588,8 +4505,16 @@ window.__ModuleLoader__.load({
       }, [])
 
       const foldRegion = useCallback(id => {
-        setRegionOpen(id, !(uiStore.getSnapshot()[REGION_PREFS][id] === true))
-      }, [setRegionOpen])
+        const open = !(uiStore.getSnapshot()[REGION_PREFS][id] === true)
+        setRegionOpen(id, open)
+        // The fold is announced because the change is invisible to anyone not
+        // looking at the header: the count moves and the rows vanish, and a
+        // screen reader that is reading the list is not reading the button.
+        const status = state.statuses.find(candidate => candidate.id === id)
+        if (status !== undefined) {
+          setAnnouncement(`${statusText(status)} ${translate(open ? 'region.unfolded' : 'region.folded')}`)
+        }
+      }, [setRegionOpen, state.statuses])
 
       const openEdit = useCallback(item => dispatch({
         type: 'modal',
@@ -3610,6 +4535,12 @@ window.__ModuleLoader__.load({
       }))
 
       const closeModal = useCallback(() => {
+        // A transfer dialog leaves nothing behind: the file it read and the
+        // report it produced belong to the import that just ran, and the next
+        // one starts from the picker again.
+        if (state.modal?.kind === 'import' || state.modal?.kind === 'importResult') {
+          setTransfer(current => ({ ...current, file: null, result: null }))
+        }
         // A refused delete of a status comes back to the manager, which is
         // where the delete was asked for.
         if (state.modal?.kind === 'deleteStatus') {
@@ -3914,6 +4845,145 @@ window.__ModuleLoader__.load({
         say(copied ? translate('action.copied') : translate('action.copyFailed'), copied ? 'ok' : 'error')
       }, [say])
 
+      /* --- Transfer ---------------------------------------------------------
+       * An export is written from what the panel already holds, and an import
+       * is one write per entry through the Remote that is already mounted. The
+       * status definitions travel with the items because a restore that lost
+       * them would produce entries the store refuses. */
+
+      const itemsById = useMemo(() => new Map(state.items.map(item => [item.id, item])), [state.items])
+      const statusIds = useMemo(() => new Set(state.statuses.map(status => status.id)), [state.statuses])
+
+      const exportData = useCallback(() => {
+        const choice = transfer.export
+        const everything = choice.scope === 'all'
+        const items = everything ? state.items : state.items.filter(item => item.kind === state.tab)
+        const stamp = new Date().toISOString().slice(0, 10)
+        try {
+          if (choice.format === 'markdown') {
+            const body = (everything ? KINDS : [state.tab])
+              .map(kind => toMarkdown(items.filter(item => item.kind === kind), kind))
+              .join('\n')
+            downloadFile(`hub-${stamp}.md`, 'text/markdown', body)
+          }
+          else {
+            // The document's own shape, so a file the panel writes is a file the
+            // store could have written: same version, same items, same
+            // definitions, and nothing derived in between.
+            const snapshot = {
+              version: state.version,
+              items: items.map(toStoredItem),
+              statuses: state.statuses.map(status => ({ ...status })),
+            }
+            downloadFile(
+              `hub-${stamp}.json`,
+              'application/json',
+              `${JSON.stringify(snapshot, null, 2)}\n`,
+            )
+          }
+          closeModal()
+          say(translate('transfer.exported'), 'ok')
+        }
+        catch (error) {
+          // A browser that refuses a download leaves nothing on disk, so the
+          // panel says so rather than closing over a file that never landed.
+          say(failureText(error) || translate('state.failed'), 'error')
+        }
+      }, [transfer.export, state.items, state.tab, state.version, state.statuses, closeModal, say])
+
+      const pickImportFile = useCallback(async (fileList) => {
+        const file = Array.from(fileList ?? [])[0]
+        if (file === undefined) return
+        const name = String(file.name ?? '')
+        const unreadable = () => setTransfer(current => ({
+          ...current,
+          file: { name, error: true, items: [], statuses: [] },
+        }))
+        try {
+          const parsed = JSON.parse(await readTextFile(file))
+          if (parsed === null || typeof parsed !== 'object' || !Array.isArray(parsed.items)) {
+            unreadable()
+            return
+          }
+          const objects = list => (Array.isArray(list)
+            ? list.filter(entry => entry !== null && typeof entry === 'object')
+            : [])
+          const items = objects(parsed.items)
+          const statuses = objects(parsed.statuses)
+          setTransfer(current => ({ ...current, file: { name, items, statuses } }))
+        }
+        catch (error) {
+          // A file that is not an export is a file, not a failure of the panel:
+          // the dialog says so and stays open for another one.
+          void error
+          unreadable()
+        }
+      }, [itemsById, statusIds])
+
+      const runImport = useCallback(async () => {
+        const file = transfer.file
+        if (file === null || file.error !== undefined) return
+        dispatch({ type: 'busy', busy: true })
+        const entries = []
+        // The definitions land first, and their ids are mapped as they do: a
+        // definition the store does not have is created with an id the Host
+        // mints, so the entries that named the file's id have to name the new
+        // one or they would be filed under a status that does not exist.
+        const statusMap = {}
+        const opened = new Set()
+        try {
+          for (const [index, raw] of file.statuses.entries()) {
+            const name = typeof raw.label === 'string' && raw.label.trim() !== ''
+              ? raw.label.trim()
+              : translate(String(raw.labelKey ?? ''))
+            try {
+              if (typeof raw.id === 'string' && statusIds.has(raw.id)) {
+                await hubCall('updateStatus', raw.id, statusPatch(raw, index))
+                statusMap[raw.id] = raw.id
+              }
+              else {
+                const stored = await hubCall('createStatus', statusDraft(raw))
+                statusMap[String(raw.id)] = stored.id
+              }
+              entries.push({ name, ok: true })
+            }
+            catch (error) {
+              entries.push({ name, ok: false, error: failureText(error) })
+            }
+          }
+          for (const raw of file.items) {
+            const existing = typeof raw.id === 'string' ? itemsById.get(raw.id) : undefined
+            const name = typeof raw.title === 'string' && raw.title.trim() !== ''
+              ? raw.title.trim()
+              : firstLine(raw.kind === 'todo' ? raw.description : raw.text)
+            try {
+              const stored = existing === undefined
+                ? await hubCall('create', createPayload(raw, statusMap))
+                : await hubCall('update', existing.id, updatePayload(raw, existing, statusMap))
+              entries.push({ name, ok: true })
+              // The same rule the status picker follows: a region opens itself
+              // when something lands in it, or an import into a folded region
+              // would read as a save that did not work.
+              if (stored?.kind === 'todo') opened.add(stored.status)
+            }
+            catch (error) {
+              entries.push({ name, ok: false, error: failureText(error) })
+            }
+          }
+          await load()
+        }
+        finally {
+          dispatch({ type: 'busy', busy: false })
+        }
+        for (const id of opened) setRegionOpen(id, true)
+        const failed = entries.filter(entry => !entry.ok).length
+        setTransfer(current => ({
+          ...current,
+          result: { entries, ok: entries.length - failed, failed },
+        }))
+        dispatch({ type: 'modal', modal: { kind: 'importResult' } })
+      }, [transfer.file, itemsById, statusIds, load, setRegionOpen])
+
       const setQuery = useCallback(patch => dispatch({ type: 'query', patch }), [])
 
       const selectView = useCallback(view => {
@@ -3938,6 +5008,38 @@ window.__ModuleLoader__.load({
       // CSS `auto-fill` rule rather than replacing it: the stylesheet still owns
       // the track sizing, and this only decides how many skeleton tiles to draw.
       const columns = Math.max(1, Math.round((gridWidth + CARD_GAP) / (CARD_MIN + CARD_GAP)))
+
+      // A long list is drawn as a window. Below the threshold the whole list is
+      // drawn instead, which is the same components with no slice at all.
+      const windowed = visible > WINDOW_THRESHOLD
+      const viewport = bodyHeight > 0 ? bodyHeight : FALLBACK_VIEWPORT
+      const layout = useMemo(
+        () => (windowed
+          ? windowLayout(regions, ui.view, ui[REGION_PREFS], scrollTop, viewport, pitch[ui.view])
+          : null),
+        [windowed, regions, ui.view, ui[REGION_PREFS], scrollTop, viewport, pitch],
+      )
+
+      // The pitch is corrected once per view, against the first window drawn: a
+      // list of title-only cards is half the height of a list of full ones, and
+      // a pitch that is wrong by a third shows up as blank space at the end of
+      // the scroll. Once, because a pitch that chased its own measurement would
+      // oscillate on a list whose rows are not all the same height.
+      useEffect(() => {
+        if (!windowed || pitchFixed.current[ui.view] === true) return
+        const body = gridRef.current
+        if (body === null || body === undefined || typeof body.querySelector !== 'function') return
+        const list = body.querySelector('.hub-grid, .hub-rows')
+        if (list === null || typeof list.getBoundingClientRect !== 'function') return
+        const rows = list.children.length
+        if (rows === 0) return
+        const measured = list.getBoundingClientRect().height / rows
+        if (!Number.isFinite(measured) || measured <= 0) return
+        pitchFixed.current[ui.view] = true
+        setPitch(current => (Math.abs(current[ui.view] - measured) < 4
+          ? current
+          : { ...current, [ui.view]: Math.round(measured) }))
+      }, [windowed, ui.view, layout, gridRef])
 
       const modalItem = useMemo(() => {
         if (state.modal === null) return null
@@ -3994,18 +5096,30 @@ window.__ModuleLoader__.load({
                   'aria-label': translate('action.create'),
                   onClick: openCreate,
                 }, h(Icon, { name: 'plus', size: 24 }))))
-            : h('div', { className: 'hub-regions' },
-              regions.map(region => Region({
-                key: region.id,
-                region,
-                open: ui[REGION_PREFS][region.id] === true,
-                view: ui.view,
-                onFold: () => foldRegion(region.id),
-                onOpen: openDetail,
-                onStatus: (item, event) => { openStatusPicker(item, event) },
-                onCopy: item => { void copyItem(item) },
-                onDelete: askDelete,
-              })))
+            : h('div', { className: 'hub-regions' }, [
+              // One list of regions either way: a windowed one is drawn from its
+              // slice, which also says whether a region's header is still on
+              // screen, and an unwindowed one is the same code with no slice.
+              ...(!windowed
+                ? regions.map(region => ({ region, slice: null }))
+                : (layout?.regions ?? []).map(entry => ({ region: entry.region, slice: entry })))
+                .map(entry => Region({
+                  key: entry.region.id,
+                  region: entry.region,
+                  slice: entry.slice,
+                  open: ui[REGION_PREFS][entry.region.id] === true,
+                  view: ui.view,
+                  columns,
+                  onFold: () => foldRegion(entry.region.id),
+                  onOpen: openDetail,
+                  onStatus: (item, event) => { openStatusPicker(item, event) },
+                  onCopy: item => { void copyItem(item) },
+                  onDelete: askDelete,
+                })),
+              // The empty height below the last drawn region. Without it the
+              // scroll would end where the drawing did.
+              layout === null ? null : Spacer({ key: 'tail', height: layout.tail }),
+            ])
 
       // The stylesheet is a React element rather than an inserted one: a
       // `dsh.client` bundle has no `styles.insert`, and tying the rule sheet to
@@ -4075,6 +5189,18 @@ window.__ModuleLoader__.load({
                   onClick: () => selectView(ui.view === 'grid' ? 'list' : 'grid'),
                 }),
                 IconButton({
+                  key: 'export',
+                  icon: 'exportFile',
+                  label: translate('action.export'),
+                  onClick: () => dispatch({ type: 'modal', modal: { kind: 'export' } }),
+                }),
+                IconButton({
+                  key: 'import',
+                  icon: 'importFile',
+                  label: translate('action.import'),
+                  onClick: () => dispatch({ type: 'modal', modal: { kind: 'import' } }),
+                }),
+                IconButton({
                   key: 'dock',
                   icon: 'dock' + (ui.edge === 'left' ? 'Left' : ui.edge === 'right' ? 'Right' : 'Bottom'),
                   label: translate('action.dock'),
@@ -4134,7 +5260,22 @@ window.__ModuleLoader__.load({
               : null,
             // One measured node for every group: a ref shared across the per-group
             // grids would only ever hold the last one React attached it to.
-            h('div', { key: 'body', className: 'hub-body', ref: gridRef }, body),
+            h('div', {
+              key: 'body',
+              className: 'hub-body',
+              ref: gridRef,
+              // The only thing a windowed list needs from the scroll: where the
+              // top of the viewport is. The height is measured, so this carries
+              // one number and nothing else.
+              onScroll: event => {
+                const top = Number(event?.currentTarget?.scrollTop ?? event?.target?.scrollTop)
+                if (Number.isFinite(top)) setScrollTop(top)
+              },
+            }, body),
+            // The fold announcement. Always mounted, because a live region that
+            // appears with its text is not one anything is listening to yet.
+            h('div', { key: 'live', className: 'hub-live', role: 'status', 'aria-live': 'polite' },
+              announcement),
             // One popover for the panel, placed at the badge that opened it.
             state.popover === null || popoverItem === null
               ? null
@@ -4230,7 +5371,35 @@ window.__ModuleLoader__.load({
                           onConfirm: () => { void confirmDeleteStatus() },
                           onClose: closeModal,
                         })
-                        : null)
+                        : state.modal.kind === 'export'
+                          ? h(ExportModal, {
+                            key: 'export',
+                            choice: transfer.export,
+                            onChoice: patch => setTransfer(current => ({
+                              ...current,
+                              export: { ...current.export, ...patch },
+                            })),
+                            onExport: () => { exportData() },
+                            onClose: closeModal,
+                          })
+                          : state.modal.kind === 'import'
+                            ? h(ImportModal, {
+                              key: 'import',
+                              file: transfer.file,
+                              busy: state.busy,
+                              itemsById,
+                              statusIds,
+                              onPickFiles: files => { void pickImportFile(files) },
+                              onImport: () => { void runImport() },
+                              onClose: closeModal,
+                            })
+                            : state.modal.kind === 'importResult' && transfer.result !== null
+                              ? h(ImportResultModal, {
+                                key: 'importResult',
+                                result: transfer.result,
+                                onClose: closeModal,
+                              })
+                              : null)
               : null,
           ])
           : null,

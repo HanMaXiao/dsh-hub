@@ -143,6 +143,8 @@ const stores = []
 let store = null
 /** Simulate a Host built before `title` existed: it drops the field on write and on read. */
 let legacyHost = false
+/** A promise a test installs to hold the `list` call open, so it can catch the skeleton. */
+let holdList = null
 
 /** The items currently on disk, oldest first. */
 function stored() { return store === null ? [] : store.list() }
@@ -157,6 +159,7 @@ function asLegacy(items) {
 
 const hub = {
   async list() {
+    if (holdList !== null) await holdList
     const items = store.list()
     const value = { version: store.document.version, items: legacyHost ? asLegacy(items) : items }
     // A Host that predates the enum sends no `statuses` key at all.
@@ -164,14 +167,20 @@ const hub = {
     return { ok: true, value }
   },
   async create(draft) {
-    const value = store.create(legacyHost ? asLegacy([draft])[0] : draft)
-    return { ok: true, value }
+    // The item trio answers with the same envelope every other method does: a
+    // refusal is `{ ok: false, error }`, not a throw, so the panel reads it the
+    // way the gateway delivers it.
+    try { return { ok: true, value: store.create(legacyHost ? asLegacy([draft])[0] : draft) } }
+    catch (error) { return { ok: false, error } }
   },
   async update(id, patch) {
-    const value = store.update(id, legacyHost ? asLegacy([patch])[0] : patch)
-    return { ok: true, value }
+    try { return { ok: true, value: store.update(id, legacyHost ? asLegacy([patch])[0] : patch) } }
+    catch (error) { return { ok: false, error } }
   },
-  async delete(id) { return { ok: true, value: store.remove(id) } },
+  async delete(id) {
+    try { return { ok: true, value: store.remove(id) } }
+    catch (error) { return { ok: false, error } }
+  },
   // The status trio answers with the same envelope every other method does: a
   // refusal is `{ ok: false, error }`, not a throw, so the panel reads it the
   // way the gateway delivers it.
@@ -203,12 +212,18 @@ const logged = []
 
 /**
  * Mount the panel into a fresh context and return a driver.
+ *
+ * `seed` runs against the store before the panel is applied, which is how a
+ * long list is produced without two hundred round trips through the dialog.
+ *
+ * @param seed Optional `(store) => void` run before the panel mounts.
  * @returns the driver's `panel` object: `tree`, `error`, `find`, `buttons`, `byText`, `click`, `expand`, `leave`, `settle`.
  */
-async function mountPanel() {
+async function mountPanel(seed) {
   const dataDir = mkdtempSync(path.join(tmpdir(), 'dsh-hub-panel-'))
   stores.push(dataDir)
   store = new HubStore({ dataDir, maxImageBytes: 2097152 })
+  if (typeof seed === 'function') seed(store)
   let component
   const ctx = {
     effect(fn) { const disposer = fn(); return typeof disposer === 'function' ? disposer : undefined },
@@ -347,7 +362,13 @@ function fakeStorage() {
 /** Render the panel and expand every nested function component, as React does. */
 function renderPanel(panel, component) {
   const previous = current
+  const previousRef = panelRef
   current = panel
+  // A nested component takes its hooks from the panel that is rendering, so
+  // `expand` has to be told which one that is. Nothing here used to have a
+  // hook of its own, so a null was harmless; `Modal` holds a ref and an effect
+  // now, and a null would throw on the first dialog.
+  panelRef = panel
   panel.cursor = 0
   try {
     panel.tree = expand(component({}))
@@ -357,6 +378,7 @@ function renderPanel(panel, component) {
   }
   finally {
     current = previous
+    panelRef = previousRef
   }
 }
 
@@ -437,6 +459,126 @@ async function withAnItem(panel, title) {
   panel.byClass('hub-textarea').props.onChange?.({ target: { value: '写一份发布检查清单' } })
   await panel.settle()
   panel.click(panel.byText('action.confirm'))
+  await panel.settle()
+}
+
+/** Drive the panel to a stored Note on the Note tab, and back to the TODO tab. */
+async function withANote(panel, title) {
+  panel.click(panel.byText('tab.note'))
+  await panel.settle()
+  panel.click(panel.byLabel('action.create'))
+  await panel.settle()
+  fieldByLabel(panel, 'field.title').props.onChange({ target: { value: title } })
+  await panel.settle()
+  panel.byClass('hub-textarea').props.onChange?.({ target: { value: '笔记正文' } })
+  await panel.settle()
+  panel.click(panel.byText('action.confirm'))
+  await panel.settle()
+  panel.click(panel.byText('tab.todo'))
+  await panel.settle()
+}
+
+/** Fill the store with `count` TODO items, named by their position. */
+function seedItems(count) {
+  return store => {
+    for (let index = 0; index < count; index += 1) {
+      store.create({ kind: 'todo', title: `任务 ${index}`, description: '正文' })
+    }
+  }
+}
+
+/** Mount a panel over a seeded store, expanded and loaded. */
+async function withSeeded(count) {
+  const panel = await mountPanel(seedItems(count))
+  panel.expand()
+  await panel.settle()
+  // Every region starts folded, and a windowed list is only interesting with
+  // its region open — the fold is a state of the region, not of the window.
+  panel.click(regionHead(panel, 'status.pending'))
+  await panel.settle()
+  return panel
+}
+
+/** The cards or rows the panel has actually drawn. */
+function drawnItems(panel) {
+  return collect(panel.tree, node => node.props?.className === 'hub-card' || node.props?.className === 'hub-row')
+}
+
+/** The names of the rows the panel has actually drawn, in order. */
+function drawnNames(panel) {
+  return drawnItems(panel).map(node => textOf(findNode(node, child => child.props?.className === 'hub-item-name')))
+}
+
+/** Scroll the body, the way the browser does. */
+async function scrollBody(panel, top) {
+  panel.byClass('hub-body').props.onScroll({ target: { scrollTop: top } })
+  await panel.settle()
+}
+
+/** A picked file, the way the platform hands one to the panel. */
+function pickedFile(name, text) {
+  return { name, text: async () => text }
+}
+
+/**
+ * Capture what the panel downloads.
+ *
+ * The export is handed to the browser through a blob URL, so the blob is the
+ * one thing that sees the file's contents: `URL.createObjectURL` is stubbed to
+ * keep it and the anchor's `click` to record the hand-off.
+ *
+ * @returns `{ texts, restore }`.
+ */
+function captureDownloads() {
+  const blobs = []
+  const clicked = []
+  const createObjectURL = URL.createObjectURL
+  const revokeObjectURL = URL.revokeObjectURL
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'document')
+  Object.defineProperty(globalThis, 'document', {
+    value: {
+      createElement: () => ({
+        download: '',
+        href: '',
+        click() { clicked.push(this) },
+        remove() {},
+      }),
+      body: { appendChild() {}, removeChild() {} },
+    },
+    configurable: true,
+    writable: true,
+  })
+  URL.createObjectURL = blob => { blobs.push(blob); return `blob:${blobs.length}` }
+  URL.revokeObjectURL = () => {}
+  return {
+    clicked,
+    async texts() { return await Promise.all(blobs.map(blob => blob.text())) },
+    restore() {
+      URL.createObjectURL = createObjectURL
+      URL.revokeObjectURL = revokeObjectURL
+      if (previous === undefined) delete globalThis.document
+      else Object.defineProperty(globalThis, 'document', previous)
+    },
+  }
+}
+
+/** Pick one option in a labelled radio row of the open transfer dialog. */
+async function chooseTransfer(panel, groupLabel, choiceText) {
+  const group = panel.find(node => node.props?.role === 'radiogroup'
+    && node.props['aria-label'] === groupLabel)
+  assert.ok(group !== undefined, `the ${groupLabel} row must be on screen`)
+  const choice = (group.children ?? []).find(child => textOf(child).includes(choiceText))
+  assert.ok(choice !== undefined, `the row must offer ${choiceText}`)
+  panel.click(choice)
+  await panel.settle()
+}
+
+/** Drive the import dialog with one file, and stop at its confirm step. */
+async function withImportFile(panel, name, text) {
+  panel.click(panel.byLabel('action.import'))
+  await panel.settle()
+  assert.ok(panel.byClass('hub-modal'), 'the import dialog must open')
+  panel.byClass('hub-input').props.onChange({ target: { files: [pickedFile(name, text)] } })
   await panel.settle()
 }
 
@@ -1812,6 +1954,476 @@ test('both dictionaries carry the same keys', () => {
   const dicts = dictionaries.get('hub')
   assert.ok(dicts !== undefined, 'the panel must register its dictionaries')
   assert.deepEqual(Object.keys(dicts.zh).sort(), Object.keys(dicts.en).sort())
+})
+
+/* --- windowed rendering ---------------------------------------------------- */
+
+test('a long list keeps its skeleton, and then draws a window', async () => {
+  // The skeleton is the loading state's own, and a windowed list must not
+  // trade it for a half-drawn list.
+  let release = () => {}
+  holdList = new Promise(resolve => { release = resolve })
+  try {
+    const panel = await mountPanel(seedItems(240))
+    panel.expand()
+    await panel.settle()
+    assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+    assert.ok(panel.byClass('hub-skel-grid'), 'the grid skeleton is still the loading state')
+    assert.equal(panel.byClass('hub-card'), undefined, 'and nothing is drawn yet')
+
+    release()
+    await pause(20)
+    assert.equal(panel.byClass('hub-skel-grid'), undefined, 'the list replaces it')
+    // Every region starts folded, so the window is only worth looking at once
+    // the region is open.
+    panel.click(regionHead(panel, 'status.pending'))
+    await panel.settle()
+    const drawn = drawnItems(panel)
+    assert.ok(drawn.length > 0, 'the window has rows in it')
+    assert.ok(drawn.length < 240, `a long list draws a window, not every row (got ${drawn.length})`)
+    assert.equal(drawnNames(panel)[0], '任务 0', 'and it starts at the top of the list')
+  }
+  finally {
+    holdList = null
+  }
+})
+
+test('the window follows the scroll, and the last row is still reachable', async () => {
+  // The defect a window exists for: a thousand rows drawn as a thousand nodes.
+  // The one that would replace it is a window that cannot reach the end.
+  const panel = await withSeeded(240)
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  const before = drawnItems(panel).length
+
+  await scrollBody(panel, 26000)
+
+  const after = drawnItems(panel)
+  assert.ok(after.length <= before + 8, 'the window stays a window after a scroll')
+  assert.equal(drawnNames(panel).at(-1), '任务 239',
+    'the last row must be reachable, not stranded past the end of the scroll')
+})
+
+test('the list view windows as well, and its rows stay rows', async () => {
+  const panel = await withSeeded(240)
+  panel.click(panel.byLabel('action.viewGrid'))
+  await panel.settle()
+  assert.ok(panel.byClass('hub-row'), 'the list view must be on screen')
+
+  const drawn = drawnItems(panel)
+  assert.ok(drawn.length < 240, `the list view draws a window too (got ${drawn.length})`)
+
+  await scrollBody(panel, 16000)
+  assert.equal(drawnNames(panel).at(-1), '任务 239', 'and reaches its last row')
+})
+
+test('a list at the threshold is drawn whole', async () => {
+  // Below the threshold measuring costs more than drawing, so nothing is
+  // windowed and the panel keeps the shape it always had.
+  const panel = await withSeeded(200)
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  assert.equal(drawnItems(panel).length, 200, 'every row is drawn')
+  assert.equal(panel.allByClass('hub-spacer').length, 0, 'and no empty height stands in for any of them')
+})
+
+test('a windowed region still folds, and folds to its count', async () => {
+  // The fold is a property of the region, not of how much of it is drawn.
+  const panel = await withSeeded(240)
+  const head = regionHead(panel, 'status.pending')
+  assert.ok(head !== undefined, 'the region header is drawn with the window')
+  assert.equal(drawnItems(panel).length < 240, true, 'and the region is windowed while open')
+
+  panel.click(head)
+  await panel.settle()
+
+  assert.equal(panel.byClass('hub-region').props['data-open'], 'false', 'the region folds')
+  assert.equal(regionNamed(panel, 'status.pending').props['data-open'], 'false')
+  assert.equal(drawnItems(panel).length, 0, 'and a folded region draws none of its rows')
+  assert.match(textOf(head), /240 count\.unit/, 'the header still counts the whole region')
+})
+
+/* --- export ---------------------------------------------------------------- */
+
+test('exporting the current tab writes a store.json of that tab', async () => {
+  const downloads = captureDownloads()
+  try {
+    const panel = await mountPanel()
+    await withAnItem(panel, '发布检查清单')
+    await withANote(panel, '一条笔记')
+
+    panel.click(panel.byLabel('action.export'))
+    await panel.settle()
+    assert.ok(panel.byClass('hub-modal'), 'the export dialog must open')
+    assert.equal(panel.byText('action.export').props.disabled, undefined,
+      'an export needs no confirmation of its own: it writes nothing')
+    panel.click(panel.byText('action.export'))
+    await panel.settle()
+
+    assert.equal(downloads.clicked.length, 1, 'one file is handed to the browser')
+    assert.match(downloads.clicked[0].download, /\.json$/, 'as JSON')
+    const [text] = await downloads.texts()
+    const document = JSON.parse(text)
+    assert.equal(document.version, 1, 'the document carries the store own version')
+    assert.equal(document.items.length, 1, 'and the current tab only')
+    assert.equal(document.items[0].kind, 'todo')
+    assert.equal(document.items[0].title, '发布检查清单')
+    assert.equal(document.items[0].description, '写一份发布检查清单')
+    assert.equal(document.items[0].status, 'pending')
+    assert.ok(Array.isArray(document.statuses), 'the definitions travel with the items')
+    assert.equal(panel.byClass('hub-modal'), undefined, 'the dialog closes over the file it wrote')
+    assert.match(textOf(panel.byClass('hub-notice')), /transfer\.exported/, 'and says so')
+  }
+  finally {
+    downloads.restore()
+  }
+})
+
+test('exporting everything writes every kind, and Markdown writes prose', async () => {
+  const downloads = captureDownloads()
+  try {
+    const panel = await mountPanel()
+    await withAnItem(panel, '发布检查清单')
+    await withANote(panel, '一条笔记')
+
+    panel.click(panel.byLabel('action.export'))
+    await panel.settle()
+    await chooseTransfer(panel, 'transfer.scope', 'transfer.scope.all')
+    await chooseTransfer(panel, 'transfer.format', 'transfer.format.markdown')
+    panel.click(panel.byText('action.export'))
+    await panel.settle()
+
+    assert.match(downloads.clicked[0].download, /\.md$/, 'as Markdown')
+    const [text] = await downloads.texts()
+    assert.match(text, /^# panel\.title/, 'the document names the panel')
+    assert.match(text, /## tab\.todo/, 'and has a section per kind')
+    assert.match(text, /## tab\.note/, 'including the one that is not the current tab')
+    assert.match(text, /### 发布检查清单/, 'with the item name as its heading')
+    assert.match(text, /写一份发布检查清单/, 'and its body under it')
+    assert.match(text, /field\.status status\.pending/, 'and the status it is in')
+  }
+  finally {
+    downloads.restore()
+  }
+})
+
+test('a JSON export of everything round-trips through the store own shape', async () => {
+  // The export is a store.json, so the file it writes is a file the store
+  // could have written: every §5 field, and nothing derived in between.
+  const downloads = captureDownloads()
+  try {
+    const panel = await mountPanel()
+    await withAnItem(panel, '发布检查清单')
+
+    panel.click(panel.byLabel('action.export'))
+    await panel.settle()
+    await chooseTransfer(panel, 'transfer.scope', 'transfer.scope.all')
+    panel.click(panel.byText('action.export'))
+    await panel.settle()
+
+    const [text] = await downloads.texts()
+    const document = JSON.parse(text)
+    const original = stored()[0]
+    for (const key of ['id', 'kind', 'title', 'description', 'category', 'priority', 'status', 'completedAt', 'note', 'createdAt', 'updatedAt']) {
+      assert.deepEqual(document.items[0][key], original[key], `${key} must survive the round trip`)
+    }
+    assert.deepEqual(document.items[0].attachments, [], 'and the attachments with it')
+    assert.equal(document.items[0].name, undefined, 'a derived name is not written where the Host would drop it')
+    assert.equal(document.items[0].size, undefined, 'and neither is a computed byte total')
+  }
+  finally {
+    downloads.restore()
+  }
+})
+
+/* --- import ---------------------------------------------------------------- */
+
+test('an import is confirmed before it runs, and reports what it would do', async () => {
+  const panel = await mountPanel()
+  await withAnItem(panel, '发布检查清单')
+
+  panel.click(panel.byLabel('action.import'))
+  await panel.settle()
+  assert.equal(panel.byText('action.import').props.disabled, true,
+    'nothing can be imported before a file is chosen')
+
+  await withImportFile(panel, 'hub.json', JSON.stringify({
+    version: 1,
+    statuses: [],
+    items: [{ id: 'known', kind: 'todo', title: '改过的标题', description: '正文' }],
+  }))
+
+  assert.match(textOf(panel.byClass('hub-modal')), /1 count\.unit/, 'the dialog counts what it read')
+  assert.match(textOf(panel.byClass('hub-modal')), /transfer\.import\.new 1/, 'and how much of it is new')
+  assert.equal(panel.byText('action.import').props.disabled, false, 'and then it can be confirmed')
+  assert.equal(stored().length, 1, 'nothing is written before the confirm')
+})
+
+test('importing updates a known id and creates a new one', async () => {
+  // One file, two writes: the entry the store already has is updated in place,
+  // and the one it does not have is created. A second data path would have
+  // made the second one a duplicate.
+  const panel = await mountPanel()
+  await withAnItem(panel, '发布检查清单')
+  const original = stored()[0]
+
+  await withImportFile(panel, 'hub.json', JSON.stringify({
+    version: 1,
+    statuses: [],
+    items: [
+      { ...original, title: '改过的标题', description: '改过的正文' },
+      { id: 'brand-new', kind: 'todo', title: '导入的新条目', description: '新正文', status: 'pending' },
+    ],
+  }))
+  panel.click(panel.byText('action.import'))
+  await panel.settle()
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  assert.equal(stored().length, 2, 'the new entry is created rather than merged into the old one')
+  assert.equal(stored()[0].title, '改过的标题', 'the known id is updated in place')
+  assert.equal(stored()[0].id, original.id, 'and keeps its id')
+  assert.equal(stored()[1].title, '导入的新条目')
+  assert.equal(stored()[1].id, 'brand-new', 'the file id is kept, so a second import updates it')
+
+  const rows = panel.allByClass('hub-result-row')
+  assert.equal(rows.length, 2, 'every entry is reported')
+  assert.deepEqual(rows.map(row => row.props['data-ok']), ['true', 'true'], 'and both succeeded')
+})
+
+test('an export imported into a fresh store restores it', async () => {
+  // The whole point of the feature: the file the panel writes is the file the
+  // panel can read back, statuses and all.
+  const downloads = captureDownloads()
+  let text = ''
+  try {
+    const first = await mountPanel()
+    await withAnItem(first, '发布检查清单')
+    await withAnItem(first, '第二条')
+    await setStatusNamed(first, '第二条', 'status.done')
+
+    first.click(first.byLabel('action.export'))
+    await first.settle()
+    await chooseTransfer(first, 'transfer.scope', 'transfer.scope.all')
+    first.click(first.byText('action.export'))
+    await first.settle()
+    ;[text] = await downloads.texts()
+  }
+  finally {
+    downloads.restore()
+  }
+
+  const panel = await mountPanel()
+  assert.equal(stored().length, 0, 'the second store starts empty')
+  panel.expand()
+  await panel.settle()
+  await withImportFile(panel, 'hub.json', text)
+  panel.click(panel.byText('action.import'))
+  await panel.settle()
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  assert.equal(stored().length, 2, 'both entries are restored')
+  assert.deepEqual(stored().map(item => item.title), ['发布检查清单', '第二条'])
+  assert.equal(stored()[1].status, 'done', 'and the status each one was in')
+  assert.notEqual(stored()[1].completedAt, '', 'with the moment it was finished, not the moment it was restored')
+  const rows = panel.allByClass('hub-result-row')
+  assert.equal(rows.length, 8, 'the definitions are reported with the entries')
+  assert.deepEqual(rows.map(row => row.props['data-ok']), Array.from({ length: 8 }, () => 'true'))
+})
+
+test('an entry the Host refuses is reported by name, and nothing is written for it', async () => {
+  // Per-item reporting is the difference between an import that lost one entry
+  // and one that says which.
+  const panel = await mountPanel()
+  await withAnItem(panel, '发布检查清单')
+
+  await withImportFile(panel, 'hub.json', JSON.stringify({
+    version: 1,
+    statuses: [],
+    items: [
+      { id: 'bad', kind: 'todo', title: '状态不存在', description: '正文', status: 'nope' },
+      { id: 'good', kind: 'todo', title: '好条目', description: '正文', status: 'pending' },
+    ],
+  }))
+  panel.click(panel.byText('action.import'))
+  await panel.settle()
+
+  assert.equal(stored().length, 2, 'the entry the Host accepted is there')
+  assert.equal(stored()[1].title, '好条目', 'and the one it refused is not')
+  const failed = panel.allByClass('hub-result-row').filter(row => row.props['data-ok'] === 'false')
+  assert.equal(failed.length, 1, 'the refusal is reported')
+  assert.match(textOf(failed[0]), /状态不存在/, 'by the name the file gave it')
+  assert.match(textOf(failed[0]), /status/, 'and with the reason')
+})
+
+test('a file that renames an entry kind is refused by the Host, and reported', async () => {
+  // An update cannot change a kind, so writing the other kind's content field
+  // would silently do nothing. The refusal is the Host's, and it is the one
+  // that names the rule.
+  const panel = await mountPanel()
+  await withAnItem(panel, '发布检查清单')
+
+  await withImportFile(panel, 'hub.json', JSON.stringify({
+    version: 1,
+    statuses: [],
+    items: [{ ...stored()[0], kind: 'note' }],
+  }))
+  panel.click(panel.byText('action.import'))
+  await panel.settle()
+
+  const failed = panel.allByClass('hub-result-row').filter(row => row.props['data-ok'] === 'false')
+  assert.equal(failed.length, 1, 'the rename is reported as a failure')
+  assert.match(textOf(failed[0]), /kind/, 'and it says why')
+  assert.equal(stored()[0].kind, 'todo', 'and the stored entry keeps its kind')
+})
+
+test('a file that is not an export is refused at the dialog, not at the store', async () => {
+  const panel = await mountPanel()
+  await withAnItem(panel, '发布检查清单')
+
+  await withImportFile(panel, 'notes.txt', 'not json at all')
+
+  assert.match(textOf(panel.byClass('hub-modal')), /transfer\.import\.unreadable/,
+    'the dialog says the file is not an export')
+  assert.equal(panel.byText('action.import').props.disabled, true, 'and it cannot be confirmed')
+  assert.equal(stored().length, 1, 'and nothing reaches the store')
+})
+
+test('an empty export is refused rather than imported as nothing', async () => {
+  const panel = await mountPanel()
+  panel.expand()
+  await panel.settle()
+  await withImportFile(panel, 'hub.json', JSON.stringify({ version: 1, statuses: [], items: [] }))
+
+  assert.match(textOf(panel.byClass('hub-modal')), /transfer\.import\.empty/, 'an empty file says so')
+  assert.equal(panel.byText('action.import').props.disabled, true)
+})
+
+/* --- accessibility --------------------------------------------------------- */
+
+test('Escape closes a dialog', async () => {
+  const panel = await mountPanel()
+  await withAnItem(panel)
+  panel.click(panel.byLabel('action.create'))
+  await panel.settle()
+  assert.ok(panel.byClass('hub-modal'), 'the dialog is open')
+
+  panel.byClass('hub-root').props.onKeyDown({ key: 'Escape', preventDefault() {} })
+  await panel.settle()
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  assert.equal(panel.byClass('hub-modal'), undefined, 'Escape must close it')
+  assert.equal(stored().length, 1, 'and the form must not have been saved on the way out')
+})
+
+test('Tab wraps inside a dialog instead of walking out of it', async () => {
+  // A dialog that lets Tab walk into the list behind its scrim is one the
+  // keyboard has already left.
+  const panel = await mountPanel()
+  await withAnItem(panel)
+  panel.click(panel.byLabel('action.create'))
+  await panel.settle()
+
+  const modal = panel.byClass('hub-modal')
+  const focusable = collect(modal, node => ['button', 'input', 'textarea'].includes(node.type)
+    && node.props?.disabled !== true)
+  assert.ok(focusable.length > 2, 'the dialog has controls to walk among')
+  const [first] = focusable
+  const last = focusable[focusable.length - 1]
+  const focused = []
+  for (const node of focusable) node.focus = () => { focused.push(node) }
+
+  modal.props.onKeyDown({ key: 'Tab', target: last, preventDefault() {} })
+  assert.deepEqual(focused, [first], 'Tab off the last control comes back to the first')
+
+  modal.props.onKeyDown({ key: 'Tab', shiftKey: true, target: first, preventDefault() {} })
+  assert.deepEqual(focused, [first, last], 'and Shift+Tab off the first goes to the last')
+})
+
+test('a fold is announced, and so is an unfold', async () => {
+  // The count moves and the rows vanish, and a screen reader reading the list
+  // is not reading the button that did it.
+  const panel = await mountPanel()
+  await withAnItem(panel, 'alpha')
+  const live = () => panel.byClass('hub-live')
+  assert.equal(textOf(live()), '', 'nothing is announced until something changes')
+
+  panel.click(regionHead(panel, 'status.pending'))
+  await panel.settle()
+  assert.equal(textOf(live()), 'status.pending region.folded',
+    'the fold is announced with the region it happened to')
+
+  panel.click(regionHead(panel, 'status.pending'))
+  await panel.settle()
+  assert.equal(textOf(live()), 'status.pending region.unfolded', 'and the unfold too')
+})
+
+test('arrow keys move focus along the list rows', async () => {
+  const panel = await mountPanel()
+  await withAnItem(panel, 'alpha')
+  await withAnItem(panel, 'beta')
+  await withAnItem(panel, 'gamma')
+  panel.click(panel.byLabel('action.viewGrid'))
+  await panel.settle()
+
+  const rows = drawnItems(panel)
+  assert.equal(rows.length, 3, 'all three rows are on screen')
+  const focused = []
+  for (const row of rows) row.focus = () => { focused.push(row) }
+  const list = panel.byClass('hub-rows')
+  // The browser reports the key on the container, with the focused row as its
+  // target; the harness hands both over the way React does.
+  const key = (name, target, extra) => list.props.onKeyDown({
+    key: name, target, currentTarget: list, preventDefault() {}, ...extra,
+  })
+
+  key('ArrowDown', rows[0])
+  assert.deepEqual(focused, [rows[1]], 'ArrowDown moves to the next row')
+
+  key('ArrowUp', rows[1])
+  assert.deepEqual(focused, [rows[1], rows[0]], 'and ArrowUp back to the one above')
+
+  key('ArrowUp', rows[0])
+  assert.equal(focused.length, 2, 'the top of the list is the end of the walk')
+})
+
+test('arrow keys move focus along the grid cards', async () => {
+  const panel = await mountPanel()
+  await withAnItem(panel, 'alpha')
+  await withAnItem(panel, 'beta')
+
+  const cards = drawnItems(panel)
+  assert.equal(cards.length, 2, 'both cards are on screen')
+  const focused = []
+  for (const card of cards) card.focus = () => { focused.push(card) }
+  const grid = panel.byClass('hub-grid')
+  const key = (name, target) => grid.props.onKeyDown({
+    key: name, target, currentTarget: grid, preventDefault() {},
+  })
+
+  key('ArrowRight', cards[0])
+  assert.deepEqual(focused, [cards[1]], 'ArrowRight moves along the row')
+
+  key('ArrowLeft', cards[1])
+  assert.deepEqual(focused, [cards[1], cards[0]], 'and ArrowLeft back')
+})
+
+test('the file pickers carry the filter the Host enforces', async () => {
+  // The Host refuses an attachment that is not a raster image, so the picker
+  // is filtered to what the store takes. A filter, not a validation: the Host
+  // error path stays the backstop.
+  const panel = await mountPanel()
+  await withAnItem(panel, 'alpha')
+
+  panel.click(panel.byLabel('action.create'))
+  await panel.settle()
+  const fileInputs = () => collect(panel.tree, node => node.type === 'input' && node.props?.type === 'file')
+  assert.equal(fileInputs()[0].props.accept, 'image/png,image/jpeg,image/gif,image/webp',
+    'the attachment picker offers the raster types the Host accepts')
+  panel.click(panel.byText('action.cancel'))
+  await panel.settle()
+
+  panel.click(panel.byLabel('action.import'))
+  await panel.settle()
+  assert.equal(fileInputs()[0].props.accept, '.json,.md',
+    'and the import picker offers the two formats an export writes')
 })
 
 test.after(() => { for (const dir of stores.splice(0)) rmSync(dir, { recursive: true, force: true }) })
