@@ -8,7 +8,7 @@
  */
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { applyPatch, formatBytes, HubValidationError, normalizeItem, PRIORITIES } from '../lib/model.js'
+import { applyPatch, ATTACHMENT_MIME_TYPES, formatBytes, HubValidationError, normalizeItem, PRIORITIES } from '../lib/model.js'
 import { DEFAULT_STATUSES } from '../lib/status.js'
 
 const AT = new Date('2026-10-15T02:04:15.123Z')
@@ -301,6 +301,56 @@ test('a non-base64 data URL is rejected', () => {
 
 test('a bare string is not a data URL', () => {
   rejects(() => normalizeItem({ ...todo, attachments: [{ name: 'shot.png', dataUrl: 'shot.png' }] }, {}, AT), 'attachments[0].dataUrl')
+})
+
+test('the four raster media types are accepted and named in the refusal', () => {
+  // The allowlist is what keeps a picked file from becoming active content:
+  // the four accepted types cannot carry anything executable.
+  for (const mime of ATTACHMENT_MIME_TYPES) {
+    const item = normalizeItem({
+      ...todo,
+      attachments: [{ name: 'shot', dataUrl: `data:${mime};base64,AAAA` }],
+    }, { allowMimeTypes: ATTACHMENT_MIME_TYPES }, AT)
+    assert.equal(item.attachments[0].mime, mime)
+  }
+})
+
+test('an SVG is refused, because it can carry a script', () => {
+  const message = rejects(() => normalizeItem({
+    ...todo,
+    attachments: [{ name: 'logo.svg', dataUrl: 'data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=' }],
+  }, { allowMimeTypes: ATTACHMENT_MIME_TYPES }, AT), 'attachments[0].mime')
+  assert.equal(message, 'dsh-hub: attachments[0].mime must be one of image/png|image/jpeg|image/gif|image/webp, received "image/svg+xml"')
+})
+
+test('a media type that is not an image at all is refused', () => {
+  const message = rejects(() => normalizeItem({
+    ...todo,
+    attachments: [{ name: 'notes.pdf', dataUrl: 'data:application/pdf;base64,AAAA' }],
+  }, { allowMimeTypes: ATTACHMENT_MIME_TYPES }, AT), 'attachments[0].mime')
+  assert.match(message, /application\/pdf/)
+})
+
+test('an attachment stored before the allowlist existed still loads', () => {
+  // The gate governs writes, not reads: enforcing it on load would lock a user
+  // out of a document that was legal when it was written, which is the same
+  // reason a lowered ceiling does not apply to a load.
+  const item = normalizeItem({
+    ...todo,
+    attachments: [{ name: 'logo.svg', dataUrl: 'data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=' }],
+  }, {}, AT)
+  assert.equal(item.attachments[0].mime, 'image/svg+xml')
+})
+
+test('the media type is what stands between data: and ;base64, and nothing else may', () => {
+  // A header carrying a parameter is a data URL the store would have to
+  // interpret, so the whole of that span is read as the media type and the
+  // allowlist refuses it rather than guessing where the type ends.
+  const message = rejects(() => normalizeItem({
+    ...todo,
+    attachments: [{ name: 'shot.png', dataUrl: 'data:image/png;charset=utf-8;base64,AAAA' }],
+  }, { allowMimeTypes: ATTACHMENT_MIME_TYPES }, AT), 'attachments[0].mime')
+  assert.match(message, /must be one of/)
 })
 
 // DESIGN §4: the ceiling is measured on the decoded bytes, before encoding.

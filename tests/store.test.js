@@ -6,10 +6,11 @@
  * the plugin loudly instead of being quietly replaced by an empty one.
  */
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
+import { HubValidationError } from '../lib/model.js'
 import { HubStore, HubStoreError, resolveDataDir, SCHEMA_VERSION, STORE_FILENAME } from '../lib/store.js'
 
 const dirs = []
@@ -188,6 +189,150 @@ test('the image ceiling is read from the constructor, not assumed', () => {
   // The same image under a lower ceiling must not retroactively brick the file.
   assert.equal(open(dir, 1024).list()[0].attachments[0].size, 4096)
   assert.throws(() => open(dir, 1024).create({ kind: 'todo', description: 'too big', attachments: [image] }), /attachments\[0\]\.dataUrl/)
+})
+
+test('an oversized image is refused with the configured limit and the actual size in the message', () => {
+  // DESIGN §4: the ceiling is measured on the decoded bytes and the refusal has
+  // to name both numbers, or the user cannot tell what to shrink.
+  const dir = tempDir()
+  const limit = 4096
+  const image = { name: 'big.png', size: limit + 1, dataUrl: `data:image/png;base64,${Buffer.alloc(limit + 1, 1).toString('base64')}` }
+  const store = open(dir, limit)
+  assert.throws(() => store.create({ kind: 'todo', description: 'too big', attachments: [image] }), error => {
+    assert.ok(error instanceof HubValidationError, `expected a HubValidationError, got ${error}`)
+    assert.match(error.message, /4097/, 'the actual size is named')
+    assert.match(error.message, /4096/, 'the configured limit is named')
+    assert.match(error.message, /maxImageBytes/)
+    return true
+  })
+  assert.equal(existsSync(path.join(dir, STORE_FILENAME)), false, 'a refused write leaves no file behind')
+})
+
+test('a media type outside the allowlist is refused, and a stored one still loads', () => {
+  // An SVG is XML that can carry a script, and the store keeps every attachment
+  // inline in the one document the panel renders from.
+  const dir = tempDir()
+  const dataUrl = `data:image/svg+xml;base64,${Buffer.from('<svg></svg>').toString('base64')}`
+  const store = open(dir)
+  assert.throws(() => store.create({ kind: 'note', text: 'with a logo', images: [{ name: 'logo.svg', dataUrl }] }), error => {
+    assert.ok(error instanceof HubValidationError, `expected a HubValidationError, got ${error}`)
+    assert.match(error.message, /image\/svg\+xml/)
+    return true
+  })
+  // The gate governs writes, not reads: a document that already carries one
+  // must not be locked out of its own store by the rule that would have
+  // refused to write it.
+  writeFileSync(path.join(dir, STORE_FILENAME), JSON.stringify({
+    version: SCHEMA_VERSION,
+    items: [{ kind: 'note', id: 'n1', text: 'a stored logo', images: [{ name: 'logo.svg', mime: 'image/svg+xml', dataUrl }] }],
+  }), 'utf8')
+  assert.equal(open(dir).list()[0].images[0].mime, 'image/svg+xml')
+})
+
+// --- the in-process document cache and the write lane ----------------------
+//
+// The cache is keyed by the stat of the file a document was read at, so the
+// only way to tell a hit from a miss is to change the file without changing
+// that key: the same length, different bytes, the same mtime.
+
+test('a repeated read is answered from the cache, not from the file', () => {
+  const dir = tempDir()
+  const file = path.join(dir, STORE_FILENAME)
+  writeFileSync(file, JSON.stringify({
+    version: SCHEMA_VERSION,
+    items: [{ kind: 'note', id: 'n1', text: 'cached' }],
+  }), 'utf8')
+  const pinned = new Date('2026-10-15T02:04:15.123Z')
+  utimesSync(file, pinned, pinned)
+  assert.equal(statSync(file).mtimeMs, pinned.getTime(), 'the mtime really is pinned, so the test can rely on it')
+
+  const store = open(dir)
+  const key = statSync(file)
+  assert.equal(store.list()[0].text, 'cached')
+
+  const body = readFileSync(file, 'utf8')
+  writeFileSync(file, body.replace('"cached"', '"tamper"'), 'utf8')
+  utimesSync(file, pinned, pinned)
+  assert.equal(statSync(file).size, key.size, 'the stat key is unchanged')
+  assert.equal(statSync(file).mtimeMs, key.mtimeMs, 'the stat key is unchanged')
+
+  assert.equal(store.list()[0].text, 'cached', 'the cached document is served, so nothing was re-read')
+  assert.equal(readDocument(dir).items[0].text, 'tamper', 'the file really did change')
+})
+
+test('a document changed by another writer is picked up on the next read', () => {
+  const dir = tempDir()
+  const store = open(dir)
+  store.create({ kind: 'note', text: 'first' })
+  // A second store over the same file stands in for any other writer. The
+  // first store must notice the file moved under it rather than answering from
+  // the copy it loaded, which is what a stale cache would do.
+  const other = open(dir)
+  other.create({ kind: 'note', text: 'second' })
+  assert.deepEqual(store.list().map(item => item.text), ['first', 'second'])
+})
+
+test('a file deleted under a running store keeps the document it holds', () => {
+  // Reading the absence as an empty store would drop every item the moment
+  // something deleted the file; the next write puts the file back instead.
+  const dir = tempDir()
+  const store = open(dir)
+  store.create({ kind: 'note', text: 'keep me' })
+  rmSync(path.join(dir, STORE_FILENAME))
+  assert.deepEqual(store.list().map(item => item.text), ['keep me'])
+  store.create({ kind: 'note', text: 'and me' })
+  assert.deepEqual(readDocument(dir).items.map(item => item.text), ['keep me', 'and me'])
+})
+
+test('writes from concurrent callers are serialised and none is lost', async () => {
+  const dir = tempDir()
+  const first = open(dir)
+  const second = open(dir)
+  // Both stores hold their own copy of an empty document, and the two writes
+  // are issued from interleaved turns. The second one refreshes before it
+  // mutates, or it renames its stale copy over the first one's item.
+  await Promise.all([
+    Promise.resolve().then(() => first.create({ kind: 'note', text: 'from the first store' })),
+    Promise.resolve().then(() => second.create({ kind: 'note', text: 'from the second store' })),
+  ])
+  assert.deepEqual(readDocument(dir).items.map(item => item.text), [
+    'from the first store',
+    'from the second store',
+  ])
+  assert.deepEqual(readdirSync(dir), [STORE_FILENAME], 'no temp file survives a serialised write')
+})
+
+test('concurrent writes from one store all land, in the order they were asked for', async () => {
+  const dir = tempDir()
+  const store = open(dir)
+  const at = new Date('2026-10-15T02:04:15.123Z')
+  const texts = Array.from({ length: 8 }, (_, index) => `note ${index}`)
+  await Promise.all(texts.map(text => Promise.resolve().then(() => store.create({ kind: 'note', text }, at))))
+  assert.deepEqual(store.list().map(item => item.text), texts)
+  assert.deepEqual(readDocument(dir).items.map(item => item.text), texts)
+  assert.deepEqual(readdirSync(dir), [STORE_FILENAME])
+})
+
+test('a write started inside another write is refused instead of interleaving', () => {
+  // Nothing in the store calls back into itself, so the nested write is forced
+  // here by making one write's persist start another. Letting it through would
+  // rename half a document over a whole one.
+  const dir = tempDir()
+  const store = open(dir)
+  const persist = store.persist
+  store.persist = () => store.create({ kind: 'note', text: 'nested' })
+  try {
+    assert.throws(() => store.create({ kind: 'note', text: 'outer' }), error => {
+      assert.ok(error instanceof HubStoreError, `expected a HubStoreError, got ${error}`)
+      assert.equal(error.reason, 'nested-write')
+      assert.match(error.message, /inside another write/)
+      return true
+    })
+  }
+  finally {
+    store.persist = persist
+  }
+  assert.equal(existsSync(path.join(dir, STORE_FILENAME)), false, 'the refused write left nothing behind')
 })
 
 // --- the status definitions ------------------------------------------------
