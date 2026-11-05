@@ -15,7 +15,7 @@
  * which is where a partial write would be most expensive.
  */
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
@@ -46,6 +46,39 @@ function storeFailure(error, reason, mentioned) {
   assert.equal(error.reason, reason)
   assert.ok(error.message.includes(mentioned), `the failure must name ${mentioned}: ${error.message}`)
   return error
+}
+
+/**
+ * Make the store's next write fail the way the disk does: `persist` throws
+ * before anything is renamed into place. The seam is the store's own public
+ * method rather than a broken `dataDir`, because a real filesystem refusal
+ * differs by platform and would be met by the read path first; what is being
+ * tested here is the pair of memory and disk after a refused write, not the
+ * platform's error code.
+ *
+ * @returns A function that restores the real write.
+ */
+function failNextWrite(store) {
+  const persist = store.persist
+  let armed = true
+  store.persist = (...args) => {
+    if (armed) {
+      armed = false
+      throw new HubStoreError(
+        `dsh-hub: the store at ${store.file} could not be written (simulated); the previous contents are untouched`,
+        'unwritable',
+      )
+    }
+    return persist.apply(store, args)
+  }
+  return () => {
+    store.persist = persist
+  }
+}
+
+/** The item texts the document on disk holds. */
+function storedTexts(file) {
+  return JSON.parse(readFileSync(file, 'utf8')).items.map(item => item.text)
 }
 
 // --- reading ---------------------------------------------------------------
@@ -86,6 +119,84 @@ test('a data directory that cannot be created is unwritable, and previous bytes 
   const failure = storeFailure(thrownBy(() => store.persist()), 'unwritable', dataDir)
   assert.match(failure.message, /cannot be created/)
   assert.equal(readFileSync(dataDir, 'utf8'), 'the bytes already there')
+})
+
+// --- a refused write is not carried into the store --------------------------
+//
+// A write that fails must leave the document the store holds exactly as the
+// disk has it. The failure the user received and the bytes that eventually land
+// have to agree: a later successful write must not rescue the change the store
+// already refused, or the user is told one thing and gets another.
+
+test('an item the disk refused is not in the store that failed', t => {
+  const { store, dataDir, file } = openStore()
+  t.after(() => rmSync(dataDir, { recursive: true, force: true }))
+
+  const release = failNextWrite(store)
+  storeFailure(thrownBy(() => store.create({ kind: 'note', text: 'refused' })), 'unwritable', file)
+  release()
+
+  assert.equal(existsSync(file), false, 'the refused write left no document behind')
+  assert.deepEqual(store.list(), [], 'the store holds the disk state, not the refused change')
+})
+
+test('a later successful write does not carry the item the disk refused', t => {
+  const { store, dataDir, file } = openStore()
+  t.after(() => rmSync(dataDir, { recursive: true, force: true }))
+
+  const release = failNextWrite(store)
+  storeFailure(thrownBy(() => store.create({ kind: 'note', text: 'refused' })), 'unwritable', file)
+  release()
+  store.create({ kind: 'note', text: 'lands' })
+
+  assert.deepEqual(storedTexts(file), ['lands'], 'only the write that was reported as successful is on disk')
+})
+
+test('a refused status is not carried into the next successful write', t => {
+  const { store, dataDir, file } = openStore()
+  t.after(() => rmSync(dataDir, { recursive: true, force: true }))
+
+  const release = failNextWrite(store)
+  storeFailure(thrownBy(() => store.createStatus({ label: 'Blocked' })), 'unwritable', file)
+  release()
+  assert.equal(store.statuses().length, DEFAULT_STATUSES.length, 'the definition list matches the disk')
+  store.create({ kind: 'note', text: 'lands' })
+
+  const statuses = JSON.parse(readFileSync(file, 'utf8')).statuses
+  assert.equal(statuses.length, DEFAULT_STATUSES.length, 'the refused definition never reaches the disk')
+  assert.ok(!statuses.some(status => status.label === 'Blocked'))
+})
+
+test('a refused edit is not carried into the next successful write', t => {
+  // With the file gone, a refresh has nothing to correct the in-memory copy
+  // against — the case where the change used to survive the failure and land
+  // on the next write.
+  const { store, dataDir, file } = openStore()
+  t.after(() => rmSync(dataDir, { recursive: true, force: true }))
+
+  const item = store.create({ kind: 'note', text: 'original' })
+  rmSync(file)
+  const release = failNextWrite(store)
+  storeFailure(thrownBy(() => store.update(item.id, { text: 'refused' })), 'unwritable', file)
+  release()
+  store.create({ kind: 'note', text: 'later' })
+
+  assert.deepEqual(storedTexts(file), ['original', 'later'], 'the refused edit was not written along with the later item')
+})
+
+test('a refused removal is not carried into the next successful write', t => {
+  const { store, dataDir, file } = openStore()
+  t.after(() => rmSync(dataDir, { recursive: true, force: true }))
+
+  const first = store.create({ kind: 'note', text: 'first' })
+  store.create({ kind: 'note', text: 'second' })
+  rmSync(file)
+  const release = failNextWrite(store)
+  storeFailure(thrownBy(() => store.remove(first.id)), 'unwritable', file)
+  release()
+  store.create({ kind: 'note', text: 'later' })
+
+  assert.deepEqual(storedTexts(file), ['first', 'second', 'later'], 'the item the store refused to delete is still on disk')
 })
 
 // --- a document that cannot be trusted -------------------------------------
