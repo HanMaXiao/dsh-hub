@@ -87,6 +87,7 @@ window.__ModuleLoader__.load({
       'action.moveDown': '下移',
       'action.export': '导出',
       'action.import': '导入',
+      'action.undo': '撤销',
       'tab.todo': 'TODO',
       'tab.note': 'Note',
       'tab.prompt': 'Prompt',
@@ -170,6 +171,7 @@ window.__ModuleLoader__.load({
       'state.broken': 'Hub 桥不可用',
       'state.broken.hint': '这个组合里没有 Hub Remote，面板拿不到数据。',
       'state.failed': '操作失败',
+      'state.deleted': '已删除',
       'state.hostOlder': '宿主比面板旧：条目里没有这些字段，这次保存会被它丢掉。改过宿主侧代码就重启 DSH 进程。',
       'count.unit': '条',
       'size.bytes': 'B',
@@ -188,6 +190,10 @@ window.__ModuleLoader__.load({
       'transfer.import.new': '新建',
       'transfer.import.update': '更新',
       'transfer.import.empty': '这个文件里没有条目。',
+      'transfer.import.tooLarge': '文件超过导入上限：',
+      'transfer.import.tooMany': '条目超过导入上限：',
+      'transfer.import.limit': '上限',
+      'transfer.import.writes': '写入次数',
       'transfer.import.unreadable': '读不出这个文件：它不是 Hub 导出的 JSON。',
       'transfer.imported': '导入完成',
       'transfer.result.ok': '成功',
@@ -221,6 +227,7 @@ window.__ModuleLoader__.load({
       'action.moveDown': 'Move down',
       'action.export': 'Export',
       'action.import': 'Import',
+      'action.undo': 'Undo',
       'tab.todo': 'TODO',
       'tab.note': 'Note',
       'tab.prompt': 'Prompt',
@@ -304,6 +311,7 @@ window.__ModuleLoader__.load({
       'state.broken': 'Hub bridge unavailable',
       'state.broken.hint': 'This composition has no Hub Remote, so the panel cannot read data.',
       'state.failed': 'The operation failed',
+      'state.deleted': 'Deleted',
       'state.hostOlder': 'The Host is older than the panel: its items carry none of these fields, so it drops this save. Restart the DSH process after changing Host-side code.',
       'count.unit': 'entries',
       'size.bytes': 'B',
@@ -322,6 +330,10 @@ window.__ModuleLoader__.load({
       'transfer.import.new': 'New',
       'transfer.import.update': 'Update',
       'transfer.import.empty': 'This file holds no entries.',
+      'transfer.import.tooLarge': 'File size over the import limit:',
+      'transfer.import.tooMany': 'Entry count over the import limit:',
+      'transfer.import.limit': 'Limit',
+      'transfer.import.writes': 'Writes',
       'transfer.import.unreadable': 'This file could not be read: it is not a Hub JSON export.',
       'transfer.imported': 'Import finished',
       'transfer.result.ok': 'Imported',
@@ -873,6 +885,7 @@ window.__ModuleLoader__.load({
 }
 .hub-notice {
   position: absolute; left: 50%; bottom: 54px; transform: translateX(-50%); z-index: 4;
+  display: flex; align-items: center; gap: 10px;
   max-width: calc(100% - 2 * var(--hub-gutter));
   padding: 6px 12px; border-radius: 8px;
   border: 1px solid var(--hub-line-strong);
@@ -880,6 +893,13 @@ window.__ModuleLoader__.load({
   font-size: 11.5px; box-shadow: 0 8px 22px var(--dsw-alias-bg-mask-2);
   animation: hubToast var(--hub-mid) var(--hub-ease) both;
 }
+.hub-notice-action {
+  flex: none; padding: 1px 7px; border-radius: 5px;
+  border: 1px solid var(--hub-line-strong);
+  background: transparent; color: var(--hub-ink);
+  font: inherit; font-weight: 500; cursor: pointer;
+}
+.hub-notice-action:hover { background: var(--dsw-alias-interactive-bg-hover-solid); }
 .hub-notice[data-tone="error"] { color: var(--dsw-alias-state-error-primary); }
 .hub-notice[data-tone="warn"] { color: var(--dsw-alias-state-warn-primary); }
 @keyframes hubToast {
@@ -2347,9 +2367,18 @@ window.__ModuleLoader__.load({
       return items
     }
 
-    /** Whitespace-separated terms, all of which must appear (§6's search). */
-    function matchesSearch(item, search) {
-      const terms = search.trim().toLowerCase().split(/\s+/).filter(Boolean)
+    /**
+     * Compile a search field into its terms; every one must appear (§6).
+     *
+     * Done once per query rather than once per item: the terms are the same
+     * for every row the query sees.
+     */
+    function searchTerms(search) {
+      return search.trim().toLowerCase().split(/\s+/).filter(Boolean)
+    }
+
+    /** Whether every compiled term appears in the item's haystack. */
+    function matchesSearch(item, terms) {
       return terms.every(term => item.haystack.includes(term))
     }
 
@@ -2397,14 +2426,17 @@ window.__ModuleLoader__.load({
 
     /**
      * The one pipeline: kind, then search, then filter, then sort, then group.
-     * @param {object[]} items Every normalized item the Host returned.
+     * @param {object[]} items Every normalized item the Host returned, or a
+     * slice already narrowed by kind.
      * @param {string} kind The active tab.
      * @param {object} query The tab's query state.
+     * @param {boolean} sameKind Whether the caller already filtered by kind.
      * @returns ordered, labelled groups; empty when nothing matched.
      */
-    function runQuery(items, kind, query) {
+    function runQuery(items, kind, query, sameKind = false) {
+      const terms = searchTerms(query.search)
       const matching = applyFilter(
-        items.filter(item => item.kind === kind && matchesSearch(item, query.search)),
+        items.filter(item => (sameKind || item.kind === kind) && matchesSearch(item, terms)),
         kind,
         query.filter,
       )
@@ -2458,6 +2490,15 @@ window.__ModuleLoader__.load({
       // nothing to fold and nothing to name.
       if (kind !== 'todo') return [{ id: 'all', groups: runQuery(items, kind, query) }]
       const todo = items.filter(item => item.kind === 'todo')
+      // One pass over the TODO list rather than one pass per definition: the
+      // regions ask for their slice by status id, and a status with nothing in
+      // it is dropped just the same.
+      const buckets = new Map()
+      for (const item of todo) {
+        const bucket = buckets.get(item.status)
+        if (bucket === undefined) buckets.set(item.status, [item])
+        else bucket.push(item)
+      }
       const known = new Set(statuses.map(status => status.id))
       const regions = statuses
         .map(status => ({
@@ -2466,15 +2507,16 @@ window.__ModuleLoader__.load({
           id: status.id,
           status,
           groups: runQuery(
-            todo.filter(item => item.status === status.id),
+            buckets.get(status.id) ?? [],
             kind,
             status.done === true ? { ...query, field: 'completedAt', direction: 'desc' } : query,
+            true,
           ),
         }))
         .filter(region => regionTotal(region.groups) > 0)
       const unfiled = todo.filter(item => !known.has(item.status))
       if (unfiled.length > 0) {
-        regions.push({ id: 'unfiled', groups: runQuery(unfiled, kind, query) })
+        regions.push({ id: 'unfiled', groups: runQuery(unfiled, kind, query, true) })
       }
       return regions
     }
@@ -2762,6 +2804,17 @@ window.__ModuleLoader__.load({
      * `update` per entry. There is no second data path and no new method — a
      * transfer feature that needed one would be a feature the bridge could not
      * carry. */
+
+    /**
+     * The largest file the dialog will read, and the most entries it will write.
+     *
+     * These are input safety boundaries rather than deployment preferences: an
+     * import is one Remote call per entry, so a file past this size would stop
+     * the panel responding rather than merely run slowly. `maxImageBytes` is a
+     * Config field because a deployment may choose it; these are fixed.
+     */
+    const MAX_IMPORT_BYTES = 8 * 1024 * 1024
+    const MAX_IMPORT_ENTRIES = 2000
 
     /** ISO-8601 of an epoch value, or `''` when there is no such moment. */
     function isoFromEpoch(epoch) {
@@ -4104,6 +4157,26 @@ window.__ModuleLoader__.load({
     }
 
     /**
+     * What the import dialog says about a file it could not take.
+     *
+     * The limit is read from the constant rather than written into the copy, so
+     * raising it is one edit; the count is the file's own, so the user can tell
+     * how far over it is.
+     *
+     * @param file The refused file record `pickImportFile` stored.
+     * @returns The line the dialog shows.
+     */
+    function importProblem(file) {
+      if (file.error === 'tooLarge') {
+        return `${translate('transfer.import.tooLarge')} ${formatSize(file.bytes ?? 0)} (${translate('transfer.import.limit')} ${formatSize(MAX_IMPORT_BYTES)})`
+      }
+      if (file.error === 'tooMany') {
+        return `${translate('transfer.import.tooMany')} ${file.count ?? 0} ${translate('count.unit')} (${translate('transfer.import.limit')} ${MAX_IMPORT_ENTRIES} ${translate('count.unit')})`
+      }
+      return translate('transfer.import.unreadable')
+    }
+
+    /**
      * The import dialog: pick a file, see what it would do, then confirm.
      *
      * The file control is the one native control in the panel (DESIGN §8): the
@@ -4140,6 +4213,8 @@ window.__ModuleLoader__.load({
             ' · ',
             `${translate('transfer.import.update')} ${counts.statuses.updates}`,
           ],
+        ' · ',
+        `${translate('transfer.import.writes')} ${total}`,
       ]
       return h(Modal, {
         title: translate('modal.import'),
@@ -4181,7 +4256,7 @@ window.__ModuleLoader__.load({
         file === null
           ? null
           : h('div', { key: 'm', className: 'hub-hint' }, file.error !== undefined
-            ? translate('transfer.import.unreadable')
+            ? importProblem(file)
             : total === 0
               ? translate('transfer.import.empty')
               : summary),
@@ -4375,6 +4450,10 @@ window.__ModuleLoader__.load({
       })
       const collapseTimer = useRef(null)
       const noticeTimer = useRef(null)
+      // What the notice's undo control would put back. It lives only while that
+      // notice is on screen: an item held past its window would be a hidden
+      // second copy of the store.
+      const pendingUndoRef = useRef(null)
       // The surface the status popover is positioned against.
       const surfaceRef = useRef(null)
       // `pinned` drives both the hold-open rule and the ref the collapse timer
@@ -4460,14 +4539,34 @@ window.__ModuleLoader__.load({
 
       useEffect(() => { void load() }, [load])
 
-      const say = useCallback((text, tone) => {
+      /**
+       * Show one notice, and clear the one before it.
+       *
+       * `options.action` adds a control to the notice and `options.duration`
+       * overrides the stay. A notice with no undo control clears any pending
+       * undo, because the item it names is only valid while its control is on
+       * screen.
+       *
+       * @param text The locale key to show, or `null` to clear the notice.
+       * @param tone `'ok' | 'info' | 'warn' | 'error'`.
+       * @param options Optional `{ action, duration }`.
+       */
+      const say = useCallback((text, tone, options) => {
         if (noticeTimer.current !== null) clearTimeout(noticeTimer.current)
-        dispatch({ type: 'notice', notice: text === null ? null : { text, tone } })
+        if (options?.action === undefined) pendingUndoRef.current = null
+        dispatch({
+          type: 'notice',
+          notice: text === null ? null : { text, tone, action: options?.action },
+        })
         if (text !== null) {
+          // A failure is longer-lived than a receipt: it is the one message the
+          // user has to act on rather than merely glance at.
+          const stay = options?.duration ?? (tone === 'error' ? 6000 : 2200)
           noticeTimer.current = setTimeout(() => {
             noticeTimer.current = null
+            pendingUndoRef.current = null
             dispatch({ type: 'notice', notice: null })
-          }, 2200)
+          }, stay)
         }
       }, [])
 
@@ -4694,15 +4793,32 @@ window.__ModuleLoader__.load({
         }
       }, [state.draft, state.modal, state.tab, closeModal, say, load, setRegionOpen])
 
-      const confirmDelete = useCallback(async () => {
-        const id = state.modal?.id
-        if (typeof id !== 'string') return
+      /**
+       * Put a deleted item back, as the same record rather than a copy.
+       *
+       * `delete` returns the removed item, which is what makes this a restore:
+       * `create` honours an id and the timestamps, so the item lands where it
+       * was instead of at the top as a new one. The id is looked up first
+       * because another panel may have recreated it during the undo window; a
+       * live id is written as an update, which cannot duplicate it.
+       */
+      const undoDelete = useCallback(async () => {
+        const removed = pendingUndoRef.current
+        if (removed === null) return
+        pendingUndoRef.current = null
         dispatch({ type: 'busy', busy: true })
         try {
-          await hubCall('delete', id)
-          closeModal()
+          // Re-read instead of trusting the list this closure was built with:
+          // the notice outlives renders, so its copy of the items predates the
+          // delete that produced it.
+          const items = await load()
+          const existing = items.find(item => item.id === removed.id)
+          if (existing === undefined) await hubCall('create', createPayload(removed, {}))
+          else await hubCall('update', existing.id, updatePayload(removed, existing, {}))
+          const refreshed = await load()
+          const landed = refreshed.find(item => item.id === removed.id)
+          if (landed !== undefined) setRegionOpen(landed.status, true)
           say(null)
-          await load()
         }
         catch (error) {
           say(failureText(error) || translate('state.failed'), 'error')
@@ -4710,7 +4826,38 @@ window.__ModuleLoader__.load({
         finally {
           dispatch({ type: 'busy', busy: false })
         }
-      }, [state.modal, closeModal, say, load])
+      }, [load, say, setRegionOpen])
+
+      const confirmDelete = useCallback(async () => {
+        const id = state.modal?.id
+        if (typeof id !== 'string') return
+        dispatch({ type: 'busy', busy: true })
+        try {
+          const removed = await hubCall('delete', id)
+          closeModal()
+          await load()
+          if (removed === undefined || removed === null) {
+            // A Host that returns nothing cannot be undone, and an undo control
+            // that would do nothing is worse than none.
+            say(translate('state.deleted'), 'ok')
+            return
+          }
+          // The notice holds the removed item for its own lifetime: the panel
+          // keeps no second copy of the store, and a window that outlived the
+          // control would be exactly that.
+          pendingUndoRef.current = removed
+          say(translate('state.deleted'), 'ok', {
+            action: { labelKey: 'action.undo', run: undoDelete },
+            duration: 6000,
+          })
+        }
+        catch (error) {
+          say(failureText(error) || translate('state.failed'), 'error')
+        }
+        finally {
+          dispatch({ type: 'busy', busy: false })
+        }
+      }, [state.modal, closeModal, say, load, undoDelete])
 
       // The status a TODO carries is the Host's, so the write goes through the
       // Remote and the item comes back from the store rather than from a local
@@ -4895,14 +5042,21 @@ window.__ModuleLoader__.load({
         const file = Array.from(fileList ?? [])[0]
         if (file === undefined) return
         const name = String(file.name ?? '')
-        const unreadable = () => setTransfer(current => ({
+        const refused = (error, counts) => setTransfer(current => ({
           ...current,
-          file: { name, error: true, items: [], statuses: [] },
+          file: { name, error, items: [], statuses: [], ...counts },
         }))
+        // The size is refused before the bytes are read: a file that large is
+        // the reason the limit exists, so reading it to learn that would be the
+        // cost the limit is there to avoid.
+        if (typeof file.size === 'number' && file.size > MAX_IMPORT_BYTES) {
+          refused('tooLarge', { bytes: file.size })
+          return
+        }
         try {
           const parsed = JSON.parse(await readTextFile(file))
           if (parsed === null || typeof parsed !== 'object' || !Array.isArray(parsed.items)) {
-            unreadable()
+            refused('unreadable')
             return
           }
           const objects = list => (Array.isArray(list)
@@ -4910,15 +5064,21 @@ window.__ModuleLoader__.load({
             : [])
           const items = objects(parsed.items)
           const statuses = objects(parsed.statuses)
+          // Every entry costs one Remote write, so the entry count is the
+          // bound that decides whether the confirm step is safe to offer.
+          if (items.length + statuses.length > MAX_IMPORT_ENTRIES) {
+            refused('tooMany', { count: items.length + statuses.length })
+            return
+          }
           setTransfer(current => ({ ...current, file: { name, items, statuses } }))
         }
         catch (error) {
           // A file that is not an export is a file, not a failure of the panel:
           // the dialog says so and stays open for another one.
           void error
-          unreadable()
+          refused('unreadable')
         }
-      }, [itemsById, statusIds])
+      }, [])
 
       const runImport = useCallback(async () => {
         const file = transfer.file
@@ -5291,8 +5451,26 @@ window.__ModuleLoader__.load({
               }),
             state.notice === null
               ? null
-              : h('div', { key: 'notice', className: 'hub-notice', 'data-tone': state.notice.tone },
-                state.notice.text),
+              : h('div', {
+                key: 'notice',
+                className: 'hub-notice',
+                'data-tone': state.notice.tone,
+                // A failure is an alert and is spoken at once; a receipt waits
+                // its turn, because interrupting for "copied" is the wrong trade.
+                role: state.notice.tone === 'error' ? 'alert' : 'status',
+                'aria-live': state.notice.tone === 'error' ? 'assertive' : 'polite',
+                'aria-atomic': 'true',
+              }, [
+                h('span', { key: 'text' }, state.notice.text),
+                state.notice.action === undefined
+                  ? null
+                  : h('button', {
+                    key: 'action',
+                    type: 'button',
+                    className: 'hub-notice-action',
+                    onClick: state.notice.action.run,
+                  }, translate(state.notice.action.labelKey)),
+              ]),
             h('div', {
               key: 'tabs',
               className: 'hub-tabs',
@@ -5308,7 +5486,14 @@ window.__ModuleLoader__.load({
                 role: 'tab',
                 className: 'hub-tab',
                 'aria-selected': String(kind === state.tab),
-                onClick: () => { setMenu('none'); dispatch({ type: 'tab', tab: kind }) },
+                onClick: () => {
+                  // The undo control is co-located with the notice it belongs
+                  // to; a tab change closes it rather than leaving a button
+                  // that would restore into a list the user is no longer in.
+                  if (pendingUndoRef.current !== null) say(null)
+                  setMenu('none')
+                  dispatch({ type: 'tab', tab: kind })
+                },
               }, [
                 h(Icon, { key: 'i', name: KIND_ICON[kind], size: 13 }),
                 translate(KIND_LABEL_KEY[kind]),
