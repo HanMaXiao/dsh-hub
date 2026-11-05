@@ -2296,6 +2296,249 @@ test('an empty export is refused rather than imported as nothing', async () => {
   assert.equal(panel.byText('action.import').props.disabled, true)
 })
 
+/* --- delete and undo ------------------------------------------------------- */
+
+/** Delete the first item in the list, and stop at the store refresh after. */
+async function deleteFirstItem(panel) {
+  panel.click(panel.byLabel('action.delete'))
+  await panel.settle()
+  assert.ok(panel.byClass('hub-modal'), 'the delete confirmation must open')
+  panel.click(panel.byText('action.confirm'))
+  await panel.settle()
+}
+
+test('deleting an item leaves an undo control in its notice', async () => {
+  const panel = await mountPanel()
+  await withAnItem(panel, '发布检查清单')
+
+  await deleteFirstItem(panel)
+
+  assert.equal(stored().length, 0, 'the delete reaches the store')
+  const notice = panel.byClass('hub-notice')
+  assert.ok(notice !== undefined, 'the delete is acknowledged')
+  assert.match(textOf(notice), /state\.deleted/)
+  const undo = panel.find(node => node.props?.className === 'hub-notice-action')
+  assert.ok(undo !== undefined, 'the notice offers a way back')
+  assert.equal(undo.type, 'button', 'as a control, not as text')
+  assert.match(textOf(undo), /action\.undo/)
+})
+
+test('undo puts the item back as the same record, not a copy', async () => {
+  const panel = await mountPanel()
+  await withAnItem(panel, '发布检查清单')
+  const before = stored()[0]
+
+  await deleteFirstItem(panel)
+  assert.equal(stored().length, 0)
+
+  panel.click(panel.find(node => node.props?.className === 'hub-notice-action'))
+  await panel.settle()
+
+  const after = stored()[0]
+  assert.equal(stored().length, 1, 'the record is back')
+  assert.equal(after.id, before.id, 'with the id it had')
+  assert.equal(after.createdAt, before.createdAt, 'and the moment it was created')
+  assert.equal(after.updatedAt, before.updatedAt, 'and the moment it was last changed')
+  assert.equal(panel.byClass('hub-notice'), undefined, 'the notice leaves with the undo')
+})
+
+test('the undo control leaves with its notice, and a late click restores nothing', async () => {
+  // The stay is six seconds; waiting it out would make this test a timer test
+  // rather than a panel test, so the long timer is captured and fired by hand.
+  // Short delays pass through, because `settle` is one of them.
+  const realSetTimeout = globalThis.setTimeout
+  const timers = []
+  globalThis.setTimeout = (fn, ms, ...rest) => {
+    if (ms >= 1000) {
+      timers.push(fn)
+      return 0
+    }
+    return realSetTimeout(fn, ms, ...rest)
+  }
+  try {
+    const panel = await mountPanel()
+    await withAnItem(panel, '发布检查清单')
+    await deleteFirstItem(panel)
+
+    const undo = panel.find(node => node.props?.className === 'hub-notice-action')
+    assert.ok(undo !== undefined)
+    assert.equal(timers.length, 1, 'an undo notice asks for a longer stay than a receipt')
+
+    timers[0]()
+    await panel.settle()
+    assert.equal(panel.byClass('hub-notice'), undefined, 'the notice and its control leave together')
+
+    panel.click(undo)
+    await panel.settle()
+    assert.equal(stored().length, 0, 'a click after the window restores nothing')
+  }
+  finally {
+    globalThis.setTimeout = realSetTimeout
+  }
+})
+
+/* --- the import bounds ---------------------------------------------------- */
+
+test('a file over the import limit is refused before it is read', async () => {
+  const panel = await mountPanel()
+  panel.expand()
+  await panel.settle()
+  let reads = 0
+  panel.click(panel.byLabel('action.import'))
+  await panel.settle()
+
+  panel.byClass('hub-input').props.onChange({
+    target: {
+      files: [{
+        name: 'huge.json',
+        size: 9 * 1024 * 1024,
+        text: async () => { reads += 1; return '{}' },
+      }],
+    },
+  })
+  await panel.settle()
+
+  assert.equal(reads, 0, 'the size is refused without reading the bytes')
+  const dialog = textOf(panel.byClass('hub-modal'))
+  assert.match(dialog, /transfer\.import\.tooLarge/)
+  assert.match(dialog, /9\.0/, 'and it says how far over the limit the file is')
+  assert.equal(panel.byText('action.import').props.disabled, true)
+  assert.equal(stored().length, 0, 'and nothing reaches the store')
+})
+
+test('a file over the entry limit is refused, and no write is sent', async () => {
+  const panel = await mountPanel()
+  panel.expand()
+  await panel.settle()
+  const items = Array.from({ length: 2001 }, (_, index) => ({
+    id: `bulk-${index}`,
+    kind: 'todo',
+    title: `条目 ${index}`,
+    description: '正文',
+    status: 'pending',
+  }))
+
+  await withImportFile(panel, 'bulk.json', JSON.stringify({ version: 1, statuses: [], items }))
+
+  const dialog = textOf(panel.byClass('hub-modal'))
+  assert.match(dialog, /transfer\.import\.tooMany/)
+  assert.match(dialog, /2001/, 'the dialog names the count the file holds')
+  assert.equal(panel.byText('action.import').props.disabled, true, 'the write cost is not offered')
+  panel.click(panel.byText('action.import'))
+  await panel.settle()
+  assert.equal(stored().length, 0, 'and nothing is written')
+})
+
+test('the confirm step names how many writes the file costs', async () => {
+  const panel = await mountPanel()
+  panel.expand()
+  await panel.settle()
+
+  await withImportFile(panel, 'hub.json', JSON.stringify({
+    version: 1,
+    statuses: [],
+    items: [{ id: 'one', kind: 'todo', title: '一条', description: '正文', status: 'pending' }],
+  }))
+
+  assert.match(textOf(panel.byClass('hub-modal')), /transfer\.import\.writes 1/,
+    'one entry is one write')
+  assert.equal(panel.byText('action.import').props.disabled, false, 'and it can be confirmed')
+})
+
+/* --- notices -------------------------------------------------------------- */
+
+/** Replace the clipboard for one test; `restore` puts the platform back. */
+function fakeClipboard(writeText) {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'navigator')
+  Object.defineProperty(globalThis, 'navigator', {
+    value: { clipboard: { writeText } },
+    configurable: true,
+    writable: true,
+  })
+  return {
+    restore() {
+      if (previous === undefined) delete globalThis.navigator
+      else Object.defineProperty(globalThis, 'navigator', previous)
+    },
+  }
+}
+
+test('a failure is announced as an alert, and stays longer than a receipt', async () => {
+  const clipboard = fakeClipboard(async () => { throw new Error('denied') })
+  const realSetTimeout = globalThis.setTimeout
+  const timers = []
+  globalThis.setTimeout = (fn, ms, ...rest) => {
+    if (ms >= 1000) {
+      timers.push(ms)
+      return 0
+    }
+    return realSetTimeout(fn, ms, ...rest)
+  }
+  try {
+    const panel = await mountPanel()
+    await withAnItem(panel, '发布检查清单')
+    panel.click(panel.byLabel('action.copy'))
+    await panel.settle()
+
+    assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+    const notice = panel.byClass('hub-notice')
+    assert.equal(notice.props.role, 'alert', 'a failure interrupts')
+    assert.equal(notice.props['aria-live'], 'assertive')
+    assert.equal(notice.props['aria-atomic'], 'true', 'and is read as one whole line')
+    assert.deepEqual(timers, [6000], 'and is given longer than a receipt')
+  }
+  finally {
+    globalThis.setTimeout = realSetTimeout
+    clipboard.restore()
+  }
+})
+
+test('a receipt is announced as a status, and waits its turn', async () => {
+  const clipboard = fakeClipboard(async () => {})
+  const realSetTimeout = globalThis.setTimeout
+  const timers = []
+  globalThis.setTimeout = (fn, ms, ...rest) => {
+    if (ms >= 1000) {
+      timers.push(ms)
+      return 0
+    }
+    return realSetTimeout(fn, ms, ...rest)
+  }
+  try {
+    const panel = await mountPanel()
+    await withAnItem(panel, '发布检查清单')
+    panel.click(panel.byLabel('action.copy'))
+    await panel.settle()
+
+    const notice = panel.byClass('hub-notice')
+    assert.equal(notice.props.role, 'status', 'a receipt does not interrupt')
+    assert.equal(notice.props['aria-live'], 'polite')
+    assert.deepEqual(timers, [2200], 'and leaves on the ordinary stay')
+  }
+  finally {
+    globalThis.setTimeout = realSetTimeout
+    clipboard.restore()
+  }
+})
+
+/* --- the compiled search --------------------------------------------------- */
+
+test('a multi-term search still matches every term across the regions', async () => {
+  // The terms are compiled once per query and reused by every row; this is
+  // what keeps that sharing from changing what the search means.
+  const panel = await mountPanel()
+  await withAnItem(panel, 'alpha beta')
+  await withAnItem(panel, 'alpha gamma')
+
+  panel.find(node => node.props?.className === 'hub-search')
+    .props.onChange({ target: { value: 'BETA alpha' } })
+  await panel.settle()
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  assert.deepEqual(namesIn(panel.byClass('hub-region')), ['alpha beta'],
+    'both terms must match, in either order and in either case')
+})
+
 /* --- accessibility --------------------------------------------------------- */
 
 test('Escape closes a dialog', async () => {
