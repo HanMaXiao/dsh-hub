@@ -31,7 +31,7 @@ dsh-hub/
 ├── typert.js         Typert manifest mirroring remote.js exactly
 ├── client.js         all panel UI and interaction (one file, not splittable)
 ├── lib/              Host pure logic: id generation, item validation, status definitions, atomic JSON storage
-├── tests/            node --test coverage for lib/, the Host entry, the panel and the client bridge — repo-only, not in `files`
+├── tests/            node --test coverage for lib/, the Host entry, the failure paths, the panel, the bridge and the style guards — repo-only, not in `files`
 └── .agents/          Agent workflows and notes
 ```
 
@@ -160,6 +160,11 @@ concrete reason; drop none of them for style.
 - **Misconfiguration fails loud.** A missing file is an empty store; an
   unreadable or malformed one is a **failure naming the path**. Never silently
   reset the user's data — a silent reset is worse than a crash.
+- **A write is adopted only after it lands.** A mutation builds its result on a
+  draft and swaps it into the in-memory document only once the rename succeeds,
+  so a change the user was told had failed cannot ride along on the next
+  successful write; the store reports the failure with the document exactly as
+  the disk has it.
 - **The Remote declares the store it reads.** `HubRemote` carries
   `static inject = ['hub-store']` and that declaration is load bearing:
   `ctx.provide()` registers inside `ctx.fiber.effect()`, and `ctx.get()` treats a
@@ -251,23 +256,36 @@ concrete reason; drop none of them for style.
 
 ## Testing
 
-`node --test` covers `lib/` (id generation, item validation, the atomic store)
-and three files that need machinery to say anything:
+`node --test` covers `lib/` — id generation, item validation, status definitions,
+config and the atomic store — and `typert.js` for the manifest, plus six files
+that need machinery to say anything:
 
 - **`tests/host-entry.test.js`** mounts the **real** Host entry on a real Cordis
   `Context` and asserts the services the gateway resolves actually exist.
 - **`tests/client-panel.test.js`** loads `client.js` through a stub module table
   and a minimal React, renders the panel, and drives create → open → edit →
-  menus → dialogs. It exists because of one defect class nothing else here can
+  menus → dialogs, the delete notice's undo, both import bounds and the notice's
+  ARIA roles. It exists because of one defect class nothing else here can
   see: the bundle is a function body, so an **undeclared identifier is valid
   syntax** — `node --check` passes, there is no lint stage, and a test that
   reads the file as text sees nothing wrong. The symptom is not a visible error
   either: React unmounts the entry, so the panel and its handle vanish and only
-  a reload brings them back. It also asserts the two dictionaries carry
-  identical key sets.
+  a reload brings them back.
 - **`tests/client-bridge.test.js`** holds the Client's duplicated Remote roster
   to `lib/remote-surface.js` plus the bridge's invariants; it reads `client.js`
   as text because those assertions are about the source's shape.
+- **`tests/remote-errors.test.js`** runs the real Host and pins the failure
+  vocabulary at the Remote boundary (`hub/invalid-item`, `hub/not-found`,
+  `hub/in-use`, `hub/corrupt`, `hub/version`, `hub/unreadable`, `hub/unwritable`),
+  the synchronous throw with its envelope intact, and the rule that an error the
+  Remote does not recognise travels untouched.
+- **`tests/store-failure-paths.test.js`** drives the store's refusal branches and
+  asserts their consequence: an item, edit or removal the disk refused is not in
+  the next successful write.
+- **`tests/style-guards.test.js`** reads sources as text and holds the rules no
+  runtime path can see: zero emoji in the panel or either dictionary, no literal
+  colour outside the icon artwork, the palette read from application tokens,
+  identical `locale/` key sets, and Plugin Manager metadata in both languages.
 
 `@deepseek-ai/dsh-typert-protocol` and, through it, `@deepseek-ai/cordis`
 resolve from this bundle's `node_modules`, so the Host half *is* importable here;

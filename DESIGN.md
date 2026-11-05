@@ -370,6 +370,27 @@ React comes from the module table: `const React = require('react')`. Do **not**
 `require` any Harness Client package — writing your own controls is required,
 not optional.
 
+### 7.1 Import is bounded in the Client
+
+Import reads one file and then issues one Remote write per entry, so both costs
+are bounded before any write:
+
+- A file larger than **8 MiB** is refused by its reported size **before its
+  bytes are read**. Reading a file to learn that it is too large is the cost
+  the limit exists to avoid.
+- A parsed file that yields more than **2000 entries** (items plus statuses) is
+  refused before the confirm step can run. Each entry is one `create` or
+  `update`, so the entry count is what bounds the burst.
+- A refusal keeps the dialog open, names the file's own size or count beside the
+  limit, and sends nothing to the Host. Before the user confirms, the dialog
+  states how many writes this import will take.
+- These bounds are **Client input-safety invariants, not Config fields**.
+  `maxImageBytes` is a deployment policy; these two decide whether the panel
+  keeps answering after a file is picked, so raising them is a code change.
+
+Both bounds live in `client.js` only. The Host has no matching ceiling, and the
+Remote gains no method for one.
+
 ## 8. Visual requirements
 
 - **Empty state**: one prominent add button. Nothing else.
@@ -482,6 +503,29 @@ allowed to mix two colours.
 - Every colour is a `--dsw-alias-*` token or a `color-mix()` of tokens. The
   tones map to token pairs in the Client's stylesheet, and the mapping is the
   only place a tone becomes a colour.
+
+### 8.4 The notice
+
+The notice is the panel's only transient message surface: one line of text, at
+most one action, and a tone. It is also the only place an undo exists.
+
+- **A delete can be undone while its notice is on screen.** Deleting returns the
+  removed item, and the notice carries one undo control for **six seconds**.
+  Undoing restores **the same record** — same id, same `createdAt` / `updatedAt`,
+  same sort position — not a copy under a new id.
+- **The removed item lives only in the notice.** Replacing the notice, letting
+  its timer expire or changing the tab clears it with the control, and nothing
+  survives a reload. There is no second copy of the store in the panel.
+- **A status definition has no undo.** Deletion is already refused for the last
+  definition and for one that items still carry (§5.1), so the remaining cases
+  are deliberate.
+- **Timing follows consequence.** A receipt stays **2.2 seconds**; a failure
+  stays **6 seconds**. A failure is the one message the user has to act on or
+  read in full, not glance at.
+- **The semantics follow the tone.** A failure is `role="alert"` with
+  `aria-live="assertive"`; a receipt or a warning is `role="status"` with
+  `aria-live="polite"`; both are `aria-atomic="true"`, because a failure may
+  name a path and a fragment is not the message.
 
 ## 9. Docking
 
