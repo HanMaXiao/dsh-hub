@@ -30,7 +30,7 @@ plugin_manager { action: "install_bundle", target: "https://github.com/HanMaXiao
 
 ```
 plugin_manager { action: "install_bundle", target: "@hanmaxiao/dsh-hub" }
-plugin_manager { action: "install_bundle", target: "@hanmaxiao/dsh-hub@1.0.0" }
+plugin_manager { action: "install_bundle", target: "@hanmaxiao/dsh-hub@1.1.0" }
 ```
 
 `@hanmaxiao` 是你的 npm 作用域，只有账号本人能发布，别人装不到抢注的同名包。
@@ -72,7 +72,7 @@ DSH peer 范围如果和你的 DSH 对不上，安装会被**在下载之前**�
 ```
 plugin_manager { action: "list_version_exemptions" }          # 先拿到 runtimeVersion
 plugin_manager { action: "set_version_exemption",
-                 target: "@hanmaxiao/dsh-hub@1.0.0",
+                 target: "@hanmaxiao/dsh-hub@1.1.0",
                  runtimeVersion: "<上一步给出的>",
                  enabled: true, acceptRisk: true }
 ```
