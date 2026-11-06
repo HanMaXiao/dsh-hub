@@ -310,6 +310,9 @@ Process rules that survive here:
   supersession and archival calibration.
 - [dsh-hub-client-ui](.agents/skills/dsh-hub-client-ui/SKILL.md) — visual and
   seat rules for `client.js`.
+- [dsh-hub-orchestrated-rollout](.agents/skills/dsh-hub-orchestrated-rollout/SKILL.md) —
+  package split, worktree isolation, merge order and close-out for a
+  multi-package round.
 
 ## Editing these instructions
 
