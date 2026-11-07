@@ -37,6 +37,7 @@ window.__ModuleLoader__.load({
     const {
       useCallback,
       useEffect,
+      useLayoutEffect,
       useMemo,
       useReducer,
       useRef,
@@ -482,6 +483,18 @@ window.__ModuleLoader__.load({
      * disagree about how tall it is.
      */
     const POPOVER_MAX_HEIGHT = 320
+
+    /**
+     * The hover preview's timing and geometry.
+     *
+     * The delay is hover intent: a pointer crossing the list on its way
+     * somewhere else must not flash a card for every row it passes. The gap is
+     * what keeps the card from sitting under the pointer that opened it, and
+     * the margin is what the placement keeps clear of the window edge.
+     */
+    const PREVIEW_DELAY_MS = 260
+    const PREVIEW_GAP = 14
+    const PREVIEW_MARGIN = 8
 
     const STYLES = `
 /* ==========================================================================
@@ -1184,6 +1197,45 @@ window.__ModuleLoader__.load({
 .hub-popover-sep { height: 1px; margin: 4px 3px; background: var(--hub-line); }
 
 /* --------------------------------------------------------------------------
+   The hover preview: the full title and body of a TODO the row had to
+   truncate. It is placed by the pointer rather than by the row, because the
+   body scrolls and a row-anchored tooltip would be left behind by it (and the
+   preview is dismissed on scroll anyway). It takes no pointer input, so the
+   row's own click-to-open is untouched.
+
+   The stylesheet only caps the card; placeHoverPreview flips and clamps it
+   inside the window, so a narrow window still gets a card that fits. Its layer
+   is below the tab capsule and the notice, so a card near the panel's bottom
+   edge cannot cover the undo control or a tab.
+   -------------------------------------------------------------------------- */
+.hub-preview {
+  position: absolute; left: 0; top: 0; z-index: 2;
+  width: max-content; max-width: min(340px, calc(100vw - 16px));
+  max-height: calc(100vh - 16px); overflow: hidden;
+  padding: 8px 10px; border-radius: 10px;
+  border: 1px solid var(--hub-line-strong);
+  background: var(--hub-raised);
+  box-shadow: 0 2px 6px var(--dsw-alias-bg-mask-2), 0 14px 34px var(--dsw-alias-bg-mask-2);
+  pointer-events: none;
+  animation: hubPreviewIn var(--hub-fast) var(--hub-ease) both;
+}
+.hub-preview-title {
+  font-size: 12.5px; font-weight: 500; line-height: 1.4;
+  color: var(--hub-ink); overflow-wrap: anywhere;
+}
+.hub-preview-body {
+  margin-top: 2px;
+  font-size: 12px; line-height: 1.55; color: var(--hub-ink-2);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+/* Opacity only: the card's transform is written by placeHoverPreview, and an
+   animation that touched transform would fight it. */
+@keyframes hubPreviewIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* --------------------------------------------------------------------------
    The status manager: one row per definition, and a row that adds one.
    -------------------------------------------------------------------------- */
 .hub-hint { color: var(--hub-ink-3); font-size: 11px; line-height: 1.5; }
@@ -1531,7 +1583,7 @@ window.__ModuleLoader__.load({
     animation: none !important;
     transition: none !important;
   }
-  .hub-card, .hub-row, .hub-scrim, .hub-modal, .hub-menu, .hub-popover, .hub-surface, .hub-notice { opacity: 1; }
+  .hub-card, .hub-row, .hub-scrim, .hub-modal, .hub-menu, .hub-popover, .hub-preview, .hub-surface, .hub-notice { opacity: 1; }
   .hub-handle::before { opacity: .8; }
 }
 `
@@ -1956,6 +2008,10 @@ window.__ModuleLoader__.load({
         // The status picker's anchor: which item it belongs to and where the
         // badge was. One popover in the panel, not one per item.
         popover: null,
+        // The item whose hover preview is open, by id. One preview per panel,
+        // like the popover; its position is written straight to the element so
+        // following the pointer costs no render.
+        hover: null,
         // The manager's own scratch state: the name being typed, the tone being
         // chosen, which row has its tone chooser open, and the name each row is
         // being renamed to.
@@ -1966,7 +2022,7 @@ window.__ModuleLoader__.load({
     function panelReducer(state, action) {
       switch (action.type) {
         case 'load/start':
-          return { ...state, phase: 'loading', failure: null }
+          return { ...state, phase: 'loading', failure: null, hover: null }
         case 'load/ok':
           return {
             ...state,
@@ -1975,24 +2031,50 @@ window.__ModuleLoader__.load({
             statuses: action.statuses,
             version: action.version,
             failure: null,
+            // A refresh can reorder or replace the rows under the pointer.
+            hover: null,
           }
+        case 'item/upserted': {
+          // A write answers with the row the Host stored, so that one entry is
+          // replaced (or appended) and every other item keeps its identity.
+          // The point is what does not happen: no `list()`, so no `loading`
+          // phase and no skeleton over the body — and the body is the scroll
+          // container, whose offset a shrinking content box clamps to zero.
+          //
+          // A landed write also proves the carrier: a quiet read that failed
+          // before it left the panel in its failure state, and the row it just
+          // produced must not hide behind that stale surface.
+          const settled = state.phase === 'error' ? { phase: 'ready', failure: null } : {}
+          const index = state.items.findIndex(item => item.id === action.item.id)
+          const items = index === -1
+            ? [...state.items, action.item]
+            : state.items.slice()
+          if (index !== -1) items[index] = action.item
+          return { ...state, ...settled, items, hover: null }
+        }
+        case 'item/removed': {
+          const items = state.items.filter(item => item.id !== action.id)
+          const settled = state.phase === 'error' ? { phase: 'ready', failure: null } : {}
+          return { ...state, ...settled, items, hover: null }
+        }
         case 'load/broken':
-          return { ...state, phase: 'broken', items: [], failure: action.failure }
+          return { ...state, phase: 'broken', items: [], failure: action.failure, hover: null }
         case 'load/fail':
-          return { ...state, phase: 'error', failure: action.failure }
+          return { ...state, phase: 'error', failure: action.failure, hover: null }
         case 'busy':
           return { ...state, busy: action.busy }
         case 'tab':
-          return { ...state, tab: action.tab, modal: null, draft: null, popover: null }
+          return { ...state, tab: action.tab, modal: null, draft: null, popover: null, hover: null }
         case 'query':
           return {
             ...state,
             queries: { ...state.queries, [state.tab]: { ...state.queries[state.tab], ...action.patch } },
+            hover: null,
           }
         case 'modal':
           // A dialog takes the panel: a popover left open would sit behind the
           // scrim, dimmed and unreachable.
-          return { ...state, modal: action.modal, draft: action.draft ?? null, popover: null }
+          return { ...state, modal: action.modal, draft: action.draft ?? null, popover: null, hover: null }
         case 'draft/merge':
           return { ...state, draft: { ...(state.draft ?? {}), ...action.draft } }
         case 'draft/append':
@@ -2000,7 +2082,14 @@ window.__ModuleLoader__.load({
         case 'notice':
           return { ...state, notice: action.notice }
         case 'popover':
-          return { ...state, popover: action.popover }
+          return { ...state, popover: action.popover, hover: null }
+        case 'hover':
+          if (action.hover === state.hover) return state
+          // A dialog or the status picker owns the panel while it is open, and
+          // a hover timer that was armed before it opened must not paint a card
+          // behind the scrim.
+          if (action.hover !== null && (state.modal !== null || state.popover !== null)) return state
+          return { ...state, hover: action.hover }
         case 'manager/draft':
           return { ...state, manager: { ...state.manager, ...action.draft } }
         default:
@@ -2649,6 +2738,56 @@ window.__ModuleLoader__.load({
       }
       if (drawn.length === 0) return null
       return { height: offset, tail: Math.max(0, offset - placed), regions: drawn }
+    }
+
+    /**
+     * Where the hover preview goes, in the surface's own coordinates.
+     *
+     * The card prefers the pointer's lower right, flips to the opposite side of
+     * the pointer when that would leave the window, and is finally clamped so
+     * a narrow window still shows it whole. Kept as one pure function rather
+     * than inline in the pointer handler: this is the geometry two tests pin
+     * (wide and narrow), and a second copy of it would drift.
+     *
+     * @param {{x: number, y: number}} point Pointer position, client coordinates.
+     * @param {{width: number, height: number}} box The measured card.
+     * @param {{left: number, top: number}} origin The surface's client box.
+     * @param {{width: number, height: number}} view The window.
+     * @returns {{x: number, y: number}} Offset inside the surface.
+     */
+    function previewPlacement(point, box, origin, view) {
+      const width = Number.isFinite(box.width) ? box.width : 0
+      const height = Number.isFinite(box.height) ? box.height : 0
+      const margin = PREVIEW_MARGIN
+      let left = point.x + PREVIEW_GAP
+      if (left + width > view.width - margin) left = point.x - PREVIEW_GAP - width
+      left = Math.max(margin, Math.min(left, view.width - margin - width))
+      let top = point.y + PREVIEW_GAP
+      if (top + height > view.height - margin) top = point.y - PREVIEW_GAP - height
+      top = Math.max(margin, Math.min(top, view.height - margin - height))
+      return {
+        x: Math.round(left - (Number.isFinite(origin.left) ? origin.left : 0)),
+        y: Math.round(top - (Number.isFinite(origin.top) ? origin.top : 0)),
+      }
+    }
+
+    /**
+     * The window's size.
+     *
+     * Read at placement time, not cached: a window can be resized between two
+     * hovers and the preview has to obey the one it is drawn in. The fallback
+     * is a desktop window, which only a host without a viewport (the render
+     * harness) ever sees.
+     *
+     * @returns {{width: number, height: number}}
+     */
+    function viewportSize() {
+      const width = Number(globalThis.innerWidth)
+      const height = Number(globalThis.innerHeight)
+      return {
+        width: Number.isFinite(width) && width > 0 ? width : 1280,
+        height: Number.isFinite(height) && height > 0 ? height : 800,
+      }
     }
 
     /** Empty height, so a windowed list keeps the scroll range it would have. */
@@ -3511,6 +3650,10 @@ window.__ModuleLoader__.load({
         role: 'button',
         tabIndex: 0,
         onClick: () => props.onOpen(item),
+        // The preview is an addition beside the card's click, not a replacement
+        // for it: nothing here stops the event, and the card stays the control.
+        onPointerEnter: event => props.onPreviewEnter(item, event),
+        onPointerLeave: () => props.onPreviewLeave(item),
         onKeyDown: event => {
           // A nested control owns its own keys. Space on the status badge opens
           // the picker and Space on an item action fires that action; both
@@ -3554,6 +3697,8 @@ window.__ModuleLoader__.load({
         role: 'button',
         tabIndex: 0,
         onClick: () => props.onOpen(item),
+        onPointerEnter: event => props.onPreviewEnter(item, event),
+        onPointerLeave: () => props.onPreviewLeave(item),
         onKeyDown: event => {
           // Same reason as the card: a nested control's keys are its own.
           if (event.target !== event.currentTarget) return
@@ -3657,6 +3802,8 @@ window.__ModuleLoader__.load({
         onStatus: props.onStatus,
         onCopy: props.onCopy,
         onDelete: props.onDelete,
+        onPreviewEnter: props.onPreviewEnter,
+        onPreviewLeave: props.onPreviewLeave,
       }))
       return h('section', { className: 'hub-group' }, [
         slice === null ? null : Spacer({ key: 'sh', height: slice.headPad }),
@@ -3710,6 +3857,8 @@ window.__ModuleLoader__.load({
         onStatus: props.onStatus,
         onCopy: props.onCopy,
         onDelete: props.onDelete,
+        onPreviewEnter: props.onPreviewEnter,
+        onPreviewLeave: props.onPreviewLeave,
       }
       // A windowed region whose header has scrolled past draws its groups
       // without it; the empty height the header would have taken is in the gap
@@ -4434,7 +4583,27 @@ window.__ModuleLoader__.load({
       const [menu, setMenu] = useState('none')
       const themePreference = useThemePreference()
       const [gridRef, gridWidth, bodyHeight] = useMeasuredWidth()
+      // The body is also the scroll container, and a write that lands in place
+      // has to put the offset back on the element itself. React gives a
+      // callback ref no `.current`, so this one carries its own — and it still
+      // runs the measuring ref, so the observer sees the same node it did
+      // before.
+      const bodyRef = useCallback(node => {
+        bodyRef.current = node
+        gridRef(node)
+      }, [gridRef])
       const [scrollTop, setScrollTop] = useState(0)
+      // The body offset a local write owes back. Armed by the click that starts
+      // the write and spent by the commit that lands it, so the view does not
+      // move under the pointer while the command is in flight.
+      const scrollRestore = useRef(null)
+      // The hover preview: one card for the panel, positioned by the pointer.
+      // `previewFrame` coalesces the pointer's moves to one placement per
+      // frame, and `hoverPoint` is the anchor those placements use.
+      const previewRef = useRef(null)
+      const previewFrame = useRef(null)
+      const hoverTimer = useRef(null)
+      const hoverPoint = useRef({ x: 0, y: 0 })
       // The row pitch, per view, corrected once against the rows actually drawn.
       const [pitch, setPitch] = useState(() => ({ ...ROW_PITCH }))
       const pitchFixed = useRef({})
@@ -4467,6 +4636,10 @@ window.__ModuleLoader__.load({
       useEffect(() => () => {
         if (collapseTimer.current !== null) clearTimeout(collapseTimer.current)
         if (noticeTimer.current !== null) clearTimeout(noticeTimer.current)
+        if (hoverTimer.current !== null) clearTimeout(hoverTimer.current)
+        if (previewFrame.current !== null && typeof cancelAnimationFrame === 'function') {
+          cancelAnimationFrame(previewFrame.current)
+        }
       }, [])
 
       const clearCollapse = useCallback(() => {
@@ -4497,8 +4670,20 @@ window.__ModuleLoader__.load({
         }, COLLAPSE_IDLE_MS)
       }, [clearCollapse])
 
-      const load = useCallback(async () => {
-        dispatch({ type: 'load/start' })
+      /**
+       * Read the document.
+       *
+       * A **quiet** read keeps the rows that are on screen while it runs: the
+       * body is the scroll container, and replacing its content with the
+       * skeleton is what makes the browser clamp the offset to zero. The first
+       * read is not quiet — an empty panel has no place to lose, and the
+       * skeleton is how it says the panel is working.
+       *
+       * @param {{quiet?: boolean}} [options] `quiet` to refresh in place.
+       * @returns the normalized items, empty when the read failed.
+       */
+      const load = useCallback(async (options) => {
+        if (options?.quiet !== true) dispatch({ type: 'load/start' })
         try {
           const envelope = await hubCall('list')
           const raw = Array.isArray(envelope) ? envelope : envelope?.items
@@ -4538,6 +4723,40 @@ window.__ModuleLoader__.load({
       }, [])
 
       useEffect(() => { void load() }, [load])
+
+      /**
+       * Owe the view its offset back.
+       *
+       * A single-row write must not move what the reader is looking at, so the
+       * body's offset is taken when the write starts and spent by the layout
+       * effect on the commit that changes the rows. A reader who scrolls while
+       * the write is in flight withdraws it: their scroll is newer than the
+       * click.
+       */
+      const holdScroll = useCallback(() => {
+        const body = bodyRef.current
+        if (body === null || body === undefined || !Number.isFinite(body.scrollTop)) return
+        scrollRestore.current = body.scrollTop
+      }, [bodyRef])
+
+      /**
+       * Adopt one row the Host just returned.
+       *
+       * The Host normalises every item it writes, so its answer is the stored
+       * truth — adopting it keeps a write from costing a re-read of the whole
+       * document. Returns `null` when the answer cannot be read as an item (an
+       * older Host), which is the caller's cue to read the list instead.
+       *
+       * @param stored The bare `Item` the Remote answered the write with.
+       * @returns the normalized item, or `null`.
+       */
+      const adoptItem = useCallback(stored => {
+        const statusIndex = new Map(state.statuses.map(status => [status.id, status]))
+        const item = normalizeItem(stored, statusIndex)
+        if (item === null) return null
+        dispatch({ type: 'item/upserted', item })
+        return item
+      }, [state.statuses])
 
       /**
        * Show one notice, and clear the one before it.
@@ -4730,6 +4949,7 @@ window.__ModuleLoader__.load({
       const submit = useCallback(async () => {
         const draft = state.draft
         if (draft === null) return
+        holdScroll()
         dispatch({ type: 'busy', busy: true })
         try {
           const files = draft.files.map(file => ({
@@ -4748,50 +4968,71 @@ window.__ModuleLoader__.load({
               // draft are not distinguishable from their fields alone. It is
               // omitted from an update, where the existing kind already holds.
               hubCall('create', { ...payload, kind: state.tab }))
-          // What the Host stored, so the region the item landed in is known
-          // rather than guessed: a new TODO is filed under the Host's default
-          // status, and only the Host knows which one that is.
-          let saved = null
-          if (state.tab === 'todo') {
-            const payload = {
+          const payload = state.tab === 'todo'
+            ? {
               title: draft.title,
               description: draft.description,
               category: draft.category,
               priority: draft.priority,
               note: draft.note,
               attachments: files,
+              // The form carries no completion control — the item's own badge
+              // owns that — but the round trip still sends the status the item
+              // already has: an update that dropped it would clear the status a
+              // badge set, every time somebody edited the title. A create has no
+              // status yet, so the Host picks the default one.
+              ...(typeof draft.status === 'string' && draft.status !== '' ? { status: draft.status } : {}),
             }
-            // The form carries no completion control — the item's own badge
-            // owns that — but the round trip still sends the status the item
-            // already has: an update that dropped it would clear the status a
-            // badge set, every time somebody edited the title. A create has no
-            // status yet, so the Host picks the default one.
-            if (typeof draft.status === 'string' && draft.status !== '') payload.status = draft.status
-            saved = await send(payload)
-          }
-          else {
-            await send({ title: draft.title, text: draft.text, images: files })
-          }
+            : { title: draft.title, text: draft.text, images: files }
+          // What the Host stored: a write answers with the row, so the item is
+          // known rather than guessed (a new TODO is filed under the Host's
+          // default status, and only the Host knows which one that is). The row
+          // is adopted directly — re-reading the document would put the body
+          // back into its skeleton and drop the scroll position.
+          const saved = await send(payload)
           closeModal()
           say(null)
-          await load()
+          const adopted = adoptItem(saved)
+          if (adopted === null) {
+            // An older Host cannot describe the row back; reading the list is
+            // the only way to show the truth, quietly so the rows on screen
+            // stay where they are. The answer cannot name the row either, but
+            // the read can: a create appends, so the last row of this kind is
+            // the one that landed. Without it a new TODO would go quiet into a
+            // folded region.
+            scrollRestore.current = null
+            const latest = await load({ quiet: true })
+            const landed = editing
+              ? latest.find(candidate => candidate.id === state.modal?.id)
+              : latest.filter(candidate => candidate.kind === state.tab).at(-1)
+            if (landed !== undefined && !editing && state.tab === 'todo') {
+              setRegionOpen(landed.status, true)
+            }
+            return
+          }
           // The same rule the status picker follows: a region opens itself
           // when something lands in it. A new TODO would otherwise disappear
           // into a folded region the moment the dialog closed, and the empty
           // state would read as "the save did not work". The region is named
           // by the status the Host filed the item under, which is the only
           // one it can be in.
-          if (!editing && state.tab === 'todo') {
-            setRegionOpen(saved?.status, true)
+          if (!editing && state.tab === 'todo') setRegionOpen(adopted.status, true)
+          // The §5 skew check rides every item the Host returns, not only the
+          // `list` envelope: its normalisation is total, so a missing key still
+          // means the running Host predates the field.
+          const behind = missingHostFields([saved])
+          if (behind.length > 0) {
+            say(`${translate('state.hostOlder')} (${behind.join(', ')})`, 'warn')
           }
         }
         catch (error) {
+          scrollRestore.current = null
           say(failureText(error) || translate('state.failed'), 'error')
         }
         finally {
           dispatch({ type: 'busy', busy: false })
         }
-      }, [state.draft, state.modal, state.tab, closeModal, say, load, setRegionOpen])
+      }, [state.draft, state.modal, state.tab, closeModal, say, load, setRegionOpen, adoptItem, holdScroll])
 
       /**
        * Put a deleted item back, as the same record rather than a copy.
@@ -4806,36 +5047,52 @@ window.__ModuleLoader__.load({
         const removed = pendingUndoRef.current
         if (removed === null) return
         pendingUndoRef.current = null
+        holdScroll()
         dispatch({ type: 'busy', busy: true })
         try {
           // Re-read instead of trusting the list this closure was built with:
           // the notice outlives renders, so its copy of the items predates the
-          // delete that produced it.
-          const items = await load()
+          // delete that produced it. Quietly, so the rows on screen stay while
+          // the read lands.
+          const items = await load({ quiet: true })
           const existing = items.find(item => item.id === removed.id)
-          if (existing === undefined) await hubCall('create', createPayload(removed, {}))
-          else await hubCall('update', existing.id, updatePayload(removed, existing, {}))
-          const refreshed = await load()
-          const landed = refreshed.find(item => item.id === removed.id)
-          if (landed !== undefined) setRegionOpen(landed.status, true)
+          const stored = existing === undefined
+            ? await hubCall('create', createPayload(removed, {}))
+            : await hubCall('update', existing.id, updatePayload(removed, existing, {}))
+          // The read landed rows this notice did not name, so the offset is
+          // re-read: the restore belongs to the row coming back.
+          holdScroll()
+          const adopted = adoptItem(stored)
+          if (adopted === null) {
+            // The write cannot be read back; the list can, and it names the
+            // region the restored row went into.
+            const latest = await load({ quiet: true })
+            const landed = latest.find(candidate => candidate.id === removed.id)
+            if (landed !== undefined) setRegionOpen(landed.status, true)
+          }
+          else setRegionOpen(adopted.status, true)
           say(null)
         }
         catch (error) {
+          scrollRestore.current = null
           say(failureText(error) || translate('state.failed'), 'error')
         }
         finally {
           dispatch({ type: 'busy', busy: false })
         }
-      }, [load, say, setRegionOpen])
+      }, [load, say, setRegionOpen, adoptItem, holdScroll])
 
       const confirmDelete = useCallback(async () => {
         const id = state.modal?.id
         if (typeof id !== 'string') return
+        holdScroll()
         dispatch({ type: 'busy', busy: true })
         try {
           const removed = await hubCall('delete', id)
           closeModal()
-          await load()
+          // The Host answered with the row it removed, so the panel takes that
+          // row out of the list itself instead of re-reading the document.
+          dispatch({ type: 'item/removed', id })
           if (removed === undefined || removed === null) {
             // A Host that returns nothing cannot be undone, and an undo control
             // that would do nothing is worse than none.
@@ -4852,43 +5109,63 @@ window.__ModuleLoader__.load({
           })
         }
         catch (error) {
+          scrollRestore.current = null
           say(failureText(error) || translate('state.failed'), 'error')
         }
         finally {
           dispatch({ type: 'busy', busy: false })
         }
-      }, [state.modal, closeModal, say, load, undoDelete])
+      }, [state.modal, closeModal, say, undoDelete, holdScroll])
 
       // The status a TODO carries is the Host's, so the write goes through the
       // Remote and the item comes back from the store rather than from a local
       // guess: a refused write must not leave the badge showing a status the
-      // store never took.
+      // store never took. Only **that one item** is merged back, though — a
+      // `list()` here would replace every item, swap the body for the loading
+      // skeleton and drop the scroll the user was reading from.
       const chooseStatus = useCallback(async (item, statusId) => {
         dispatch({ type: 'popover', popover: null })
+        // Picking the status the item already has is not a change: the write
+        // would only restamp `updatedAt`, and the row stays where it is.
+        if (statusId === item.status) return
+        holdScroll()
         try {
-          await hubCall('update', item.id, { status: statusId })
-          const items = await load()
+          const stored = await hubCall('update', item.id, { status: statusId })
+          const updated = adoptItem(stored)
+          if (updated === null) {
+            // A Host that cannot describe the item back cannot be patched in
+            // place. Reading the list is the only way to show the truth here,
+            // and it is the slow path every status change used to take. The
+            // read still names the region the item landed in, so a move into a
+            // folded region is not invisible.
+            scrollRestore.current = null
+            const latest = await load({ quiet: true })
+            const landed = latest.find(candidate => candidate.id === item.id)
+            if (landed !== undefined) setRegionOpen(landed.status, true)
+            return
+          }
           // The region the item landed in opens itself. Folding is what keeps
           // the regions apart, but a task that moves while its region is shut
           // has moved invisibly — the count would move and nothing else would,
           // which reads as a miscount rather than as a task changing state.
-          // The region is named by the status the item now carries.
-          const landed = items.find(candidate => candidate.id === item.id)
-          if (landed !== undefined) setRegionOpen(landed.status, true)
+          setRegionOpen(updated.status, true)
         }
         catch (error) {
+          scrollRestore.current = null
           say(failureText(error) || translate('state.failed'), 'error')
         }
-      }, [load, say, setRegionOpen])
+      }, [adoptItem, holdScroll, load, say, setRegionOpen])
 
       // Every write over the status definitions goes through the Remote and
-      // reloads the list: the definitions are the Host's bytes, so the panel
-      // never keeps a second copy of them.
+      // refreshes the list: the definitions are the Host's bytes, so the panel
+      // never keeps a second copy of them — and a terminal flag change restamps
+      // rows the write does not return. The read is quiet, so the rows on screen
+      // stay while it lands.
       const writeStatus = useCallback(async (method, args) => {
         dispatch({ type: 'busy', busy: true })
         try {
           await hubCall(method, ...args)
-          await load()
+          await load({ quiet: true })
           return true
         }
         catch (error) {
@@ -5130,7 +5407,9 @@ window.__ModuleLoader__.load({
               entries.push({ name, ok: false, error: failureText(error) })
             }
           }
-          await load()
+          // An import is many writes and many rows, so it re-reads; quietly, so
+          // the rows on screen stay while the read lands.
+          await load({ quiet: true })
         }
         finally {
           dispatch({ type: 'busy', busy: false })
@@ -5201,6 +5480,131 @@ window.__ModuleLoader__.load({
           : { ...current, [ui.view]: Math.round(measured) }))
       }, [windowed, ui.view, layout, gridRef])
 
+      // A local write is an in-place edit, so it owes the view its offset back.
+      // Re-reading the list to apply it used to replace the rows with the
+      // skeleton first — and a scroll container whose content shrinks is
+      // clamped by the browser to zero, which is the panel "jumping to the top"
+      // the user sees. The rows are adopted in place now; this runs on the
+      // commit that changes them and puts the offset back before paint.
+      useLayoutEffect(() => {
+        const wanted = scrollRestore.current
+        if (wanted === null) return
+        scrollRestore.current = null
+        const body = bodyRef.current
+        if (body === null || body === undefined) return
+        if (body.scrollTop !== wanted) body.scrollTop = wanted
+        // The windowed list takes its viewport from the state, so the two must
+        // agree: a browser that clamped the assignment reports the offset it
+        // actually took, and that is the one the window has to draw from.
+        const settled = body.scrollTop
+        if (!Number.isFinite(settled)) return
+        setScrollTop(current => (current === settled ? current : settled))
+      }, [state.items])
+
+      /**
+       * Put the hover preview where the pointer is.
+       *
+       * The card is measured here rather than in the component: its size
+       * depends on the text it was given, and the placement needs the size to
+       * flip and clamp. The offset goes straight onto the element — a render
+       * per pointer move would rebuild the list for a decoration.
+       */
+      const placeHoverPreview = useCallback(() => {
+        const card = previewRef.current
+        const surface = surfaceRef.current
+        if (card === null || card === undefined || surface === null || surface === undefined) return
+        if (typeof card.getBoundingClientRect !== 'function') return
+        if (typeof surface.getBoundingClientRect !== 'function') return
+        const origin = surface.getBoundingClientRect()
+        // An absolutely positioned child is placed against the surface's
+        // padding box, while the rect is its border box — and the surface has a
+        // one-pixel edge, so without this the card sits that much further from
+        // the margin it was clamped to.
+        const placement = previewPlacement(
+          hoverPoint.current,
+          card.getBoundingClientRect(),
+          {
+            left: origin.left + (Number(surface.clientLeft) || 0),
+            top: origin.top + (Number(surface.clientTop) || 0),
+          },
+          viewportSize(),
+        )
+        card.style.transform = `translate(${placement.x}px, ${placement.y}px)`
+      }, [])
+
+      // One placement per animation frame: the pointer can move several times
+      // before a paint, and each of those would otherwise read the layout and
+      // write it again for no visible change.
+      const placeHoverPreviewSoon = useCallback(() => {
+        if (previewFrame.current !== null) return
+        const place = () => {
+          previewFrame.current = null
+          placeHoverPreview()
+        }
+        if (typeof requestAnimationFrame === 'function') previewFrame.current = requestAnimationFrame(place)
+        else place()
+      }, [placeHoverPreview])
+
+      const dismissPreview = useCallback(() => {
+        if (hoverTimer.current !== null) {
+          clearTimeout(hoverTimer.current)
+          hoverTimer.current = null
+        }
+        if (previewFrame.current !== null) {
+          if (typeof cancelAnimationFrame === 'function') cancelAnimationFrame(previewFrame.current)
+          previewFrame.current = null
+        }
+        dispatch({ type: 'hover', hover: null })
+      }, [])
+
+      // Hovering an item arms one timer; leaving it, scrolling or opening
+      // anything dismisses the card. The preview is a TODO affordance: its
+      // point is the body a narrow row had to truncate, and it is the kind
+      // whose detail dialog is the only other place that text fits.
+      const hoverEnter = useCallback((item, event) => {
+        if (item.kind !== 'todo') return
+        // Touch has no hover path; its tap opens the detail dialog as before.
+        if (event?.pointerType === 'touch') return
+        const x = Number(event?.clientX)
+        const y = Number(event?.clientY)
+        if (Number.isFinite(x) && Number.isFinite(y)) hoverPoint.current = { x, y }
+        if (hoverTimer.current !== null) clearTimeout(hoverTimer.current)
+        if (state.hover === item.id) {
+          hoverTimer.current = null
+          return
+        }
+        hoverTimer.current = setTimeout(() => {
+          hoverTimer.current = null
+          dispatch({ type: 'hover', hover: item.id })
+        }, PREVIEW_DELAY_MS)
+      }, [state.hover])
+
+      const hoverLeave = useCallback(() => { dismissPreview() }, [dismissPreview])
+
+      // The card exists only after its item does: measured once per preview, so
+      // the flip and the clamp see the real size before the browser paints it.
+      // Panel geometry is a dependency too: a window resize moves the surface
+      // and the edges the card was clamped to.
+      useLayoutEffect(() => {
+        if (state.hover === null) return
+        placeHoverPreview()
+      }, [state.hover, placeHoverPreview, bodyHeight, gridWidth])
+
+      // The row a card was armed for can leave the screen without its pointer
+      // ever leaving: a tab switch, a search keystroke, a fold, or a refresh
+      // replaces what is drawn, and none of those fire `pointerleave` on a row
+      // that is no longer rendered. The armed timer is cancelled here.
+      useEffect(() => {
+        dismissPreview()
+      }, [state.tab, query, ui[REGION_PREFS], visible, state.items, dismissPreview])
+
+      // A folded panel has no rows to hover: a preview armed before the fold
+      // must not come back with the next expansion.
+      useEffect(() => {
+        if (expanded) return
+        dismissPreview()
+      }, [expanded, dismissPreview])
+
       const modalItem = useMemo(() => {
         if (state.modal === null) return null
         if (state.modal.kind === 'create' || state.modal.kind === 'edit') return null
@@ -5214,6 +5618,15 @@ window.__ModuleLoader__.load({
         if (state.popover === null) return null
         return state.items.find(item => item.id === state.popover.itemId) ?? null
       }, [state.popover, state.items])
+
+      // The item the hover preview belongs to, looked up for the same reason.
+      // A preview cannot outlive its row: an id that no longer names a TODO on
+      // the TODO tab renders nothing.
+      const previewItem = useMemo(() => {
+        if (state.hover === null || state.tab !== 'todo') return null
+        const item = state.items.find(candidate => candidate.id === state.hover)
+        return item !== undefined && item.kind === 'todo' ? item : null
+      }, [state.hover, state.items, state.tab])
 
       const deleteStatusTarget = useMemo(() => {
         if (state.modal?.kind !== 'deleteStatus') return null
@@ -5275,6 +5688,8 @@ window.__ModuleLoader__.load({
                   onStatus: (item, event) => { openStatusPicker(item, event) },
                   onCopy: item => { void copyItem(item) },
                   onDelete: askDelete,
+                  onPreviewEnter: hoverEnter,
+                  onPreviewLeave: hoverLeave,
                 })),
               // The empty height below the last drawn region. Without it the
               // scroll would end where the drawing did.
@@ -5423,13 +5838,32 @@ window.__ModuleLoader__.load({
             h('div', {
               key: 'body',
               className: 'hub-body',
-              ref: gridRef,
+              ref: bodyRef,
               // The only thing a windowed list needs from the scroll: where the
               // top of the viewport is. The height is measured, so this carries
               // one number and nothing else.
               onScroll: event => {
                 const top = Number(event?.currentTarget?.scrollTop ?? event?.target?.scrollTop)
-                if (Number.isFinite(top)) setScrollTop(top)
+                if (!Number.isFinite(top)) return
+                // A reader who moves the body while a write is in flight wins:
+                // that scroll is newer than the offset the write would put back.
+                if (scrollRestore.current !== null && top !== scrollRestore.current) {
+                  scrollRestore.current = null
+                }
+                // Scrolling takes the hovered row out from under the pointer, so
+                // a card opened against it has nothing left to describe.
+                dismissPreview()
+                setScrollTop(top)
+              },
+              // The preview follows the pointer without re-rendering: the point
+              // goes into a ref and the card's own transform is written on the
+              // next frame. Only moves while a card is open are tracked.
+              onPointerMove: event => {
+                const x = Number(event?.clientX)
+                const y = Number(event?.clientY)
+                if (!Number.isFinite(x) || !Number.isFinite(y)) return
+                hoverPoint.current = { x, y }
+                if (state.hover !== null) placeHoverPreviewSoon()
               },
             }, body),
             // The fold announcement. Always mounted, because a live region that
@@ -5449,6 +5883,25 @@ window.__ModuleLoader__.load({
                 onPick: statusId => { void chooseStatus(popoverItem, statusId) },
                 onManage: () => { dispatch({ type: 'modal', modal: { kind: 'statusManager' } }) },
               }),
+            // The hover preview: the truncated row's full title and body. It is
+            // hidden from the assistive layer — the row already reads its name
+            // and the dialog is the accessible detail — and takes no pointer
+            // input, so it cannot steal the click that opens that dialog.
+            state.hover === null || previewItem === null
+              ? null
+              : h('div', {
+                key: previewItem.id,
+                className: 'hub-preview',
+                'aria-hidden': 'true',
+                ref: previewRef,
+              }, [
+                previewItem.title === ''
+                  ? null
+                  : h('div', { key: 't', className: 'hub-preview-title' }, previewItem.title),
+                previewItem.content === ''
+                  ? null
+                  : h('div', { key: 'b', className: 'hub-preview-body' }, previewItem.content),
+              ]),
             state.notice === null
               ? null
               : h('div', {

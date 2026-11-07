@@ -97,6 +97,10 @@ function useEffect(effect, deps) {
   }
 }
 
+// The real hook runs after the DOM commit and before paint; this harness has
+// neither a paint nor a stable DOM, so it is the same queue as `useEffect`.
+function useLayoutEffect(effect, deps) { useEffect(effect, deps) }
+
 function useCallback(callback, deps) { return useMemo(() => callback, deps) }
 
 function useSyncExternalStore(subscribe, getSnapshot) {
@@ -117,6 +121,7 @@ const React = {
   useMemo,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useSyncExternalStore,
 }
 
@@ -145,6 +150,32 @@ let store = null
 let legacyHost = false
 /** A promise a test installs to hold the `list` call open, so it can catch the skeleton. */
 let holdList = null
+/** Make writes answer with an item that cannot be read back (an older Host's shape). */
+let blankWrites = false
+/** Make `delete` answer with nothing, like a Host older than the undo control. */
+let emptyDeletes = false
+/** Make the next `list` call fail, so a read's failure path can be exercised. */
+let failNextList = false
+/**
+ * Round trips the panel has made since the mount.
+ *
+ * A single-row write is an in-place edit of one item, so these are how a test
+ * tells "the panel merged the row the Host returned" apart from "the panel
+ * re-read the whole document" — the reload is what used to collapse the body
+ * to its skeleton and lose the scroll position.
+ */
+let listCalls = 0
+let updateCalls = 0
+let createCalls = 0
+/**
+ * The body's scroll offset, kept outside the element tree.
+ *
+ * The panel writes the offset back on the body node, and this harness builds a
+ * fresh element tree on every render — so the number is held here and the body
+ * node reads and writes it through an accessor, the way a real node keeps its
+ * own scroll position across renders.
+ */
+let bodyScrollTop = 0
 
 /** The items currently on disk, oldest first. */
 function stored() { return store === null ? [] : store.list() }
@@ -159,6 +190,11 @@ function asLegacy(items) {
 
 const hub = {
   async list() {
+    listCalls += 1
+    if (failNextList) {
+      failNextList = false
+      return { ok: false, error: new Error('hub/carrier-blip') }
+    }
     if (holdList !== null) await holdList
     const items = store.list()
     const value = { version: store.document.version, items: legacyHost ? asLegacy(items) : items }
@@ -167,18 +203,41 @@ const hub = {
     return { ok: true, value }
   },
   async create(draft) {
+    createCalls += 1
     // The item trio answers with the same envelope every other method does: a
     // refusal is `{ ok: false, error }`, not a throw, so the panel reads it the
     // way the gateway delivers it.
-    try { return { ok: true, value: store.create(legacyHost ? asLegacy([draft])[0] : draft) } }
+    try {
+      const stored = store.create(legacyHost ? asLegacy([draft])[0] : draft)
+      // An older Host omits a field it never heard of from **every** answer,
+      // not only from `list`: the write's own response is an item of the same
+      // older shape. `blankWrites` goes one step further and answers with
+      // something that is not an item at all.
+      return {
+        ok: true,
+        value: blankWrites ? {} : (legacyHost ? asLegacy([stored])[0] : stored),
+      }
+    }
     catch (error) { return { ok: false, error } }
   },
   async update(id, patch) {
-    try { return { ok: true, value: store.update(id, legacyHost ? asLegacy([patch])[0] : patch) } }
+    updateCalls += 1
+    try {
+      const stored = store.update(id, legacyHost ? asLegacy([patch])[0] : patch)
+      return {
+        ok: true,
+        value: blankWrites ? {} : (legacyHost ? asLegacy([stored])[0] : stored),
+      }
+    }
     catch (error) { return { ok: false, error } }
   },
   async delete(id) {
-    try { return { ok: true, value: store.remove(id) } }
+    try {
+      const removed = store.remove(id)
+      // A Host older than the undo control removes the row but answers with
+      // nothing for the panel to restore.
+      return { ok: true, value: emptyDeletes ? undefined : removed }
+    }
     catch (error) { return { ok: false, error } }
   },
   // The status trio answers with the same envelope every other method does: a
@@ -223,6 +282,14 @@ async function mountPanel(seed) {
   const dataDir = mkdtempSync(path.join(tmpdir(), 'dsh-hub-panel-'))
   stores.push(dataDir)
   store = new HubStore({ dataDir, maxImageBytes: 2097152 })
+  listCalls = 0
+  updateCalls = 0
+  createCalls = 0
+  bodyScrollTop = 0
+  blankWrites = false
+  emptyDeletes = false
+  failNextList = false
+  liveStyles.clear()
   if (typeof seed === 'function') seed(store)
   let component
   const ctx = {
@@ -251,6 +318,9 @@ async function mountPanel(seed) {
     cursor: 0,
     tree: undefined,
     error: undefined,
+    // How many renders the panel has done. A pointer move must not add one:
+    // the preview's placement is a direct style write, not a state update.
+    renders: 0,
   }
   panel.render = () => renderPanel(panel, component)
   // `expand` needs the panel that is rendering, so publish it before the first
@@ -316,6 +386,16 @@ function click(node, ...ancestors) {
 const rects = new Map()
 
 /**
+ * Live inline style for the one node whose code writes it imperatively.
+ *
+ * A DOM node keeps `style` mutations across renders; this harness rebuilds
+ * every node on each render, so the hover preview's placement would land on a
+ * node the next assertion (or the next effect) cannot see. The preview is one
+ * node per panel, so a single style object — reset with each mount — models it.
+ */
+const liveStyles = new Map()
+
+/**
  * A rect, with every field a `getBoundingClientRect` returns.
  * @param {number} left The left edge.
  * @param {number} top The top edge.
@@ -361,6 +441,7 @@ function fakeStorage() {
 
 /** Render the panel and expand every nested function component, as React does. */
 function renderPanel(panel, component) {
+  panel.renders += 1
   const previous = current
   const previousRef = panelRef
   current = panel
@@ -380,6 +461,13 @@ function renderPanel(panel, component) {
     current = previous
     panelRef = previousRef
   }
+  // A browser clamps the scroll of a container whose content shrank: the
+  // loading skeleton is a handful of rows, so a scrolled body snaps to zero.
+  // This harness lays nothing out, so only the consequence that matters is
+  // simulated — that collapse is how a full reload used to lose the position.
+  const skeleton = findNode(panel.tree, node => node.props?.className === 'hub-skel-grid'
+    || node.props?.className === 'hub-skel-row')
+  if (skeleton !== undefined) bodyScrollTop = 0
 }
 
 function expand(node, depth = 0) {
@@ -395,10 +483,33 @@ function expand(node, depth = 0) {
     if (element === null || element === undefined) return element
   }
   const expanded = { ...element, children: (element.children ?? []).map(child => expand(child, depth + 1)) }
+  // A DOM element's inline style is live and mutable: the hover preview writes
+  // its position straight to `node.style` so a pointer move costs no render.
+  // This tree has no DOM, so each node gets an object that behaves like one —
+  // and the preview's object is shared across renders, as a real node's is.
+  if (element.props?.className === 'hub-preview') {
+    if (!liveStyles.has('hub-preview')) liveStyles.set('hub-preview', {})
+    expanded.style = liveStyles.get('hub-preview')
+  }
+  else {
+    expanded.style = { ...(element.props?.style ?? {}) }
+  }
   // The panel measures boxes — the status popover is placed at the badge that
   // opened it — and this harness has no layout, so a node answers with the
   // rect a test seeded for its class.
   expanded.getBoundingClientRect = () => rects.get(element.props?.className) ?? rect(0, 0, 0, 0)
+  // The body is the scroll container, and the panel writes an in-place edit's
+  // offset back on it. A real node keeps that number across renders; this tree
+  // is rebuilt from scratch each time, so the offset lives in `bodyScrollTop`
+  // and the node reads and writes it through the accessor.
+  if (element.props?.className === 'hub-body') {
+    Object.defineProperty(expanded, 'scrollTop', {
+      get: () => bodyScrollTop,
+      set: value => { bodyScrollTop = value },
+      configurable: true,
+      enumerable: true,
+    })
+  }
   // A ref has to reach the node, or the panel's own surface is never measured.
   if (element.props?.ref) element.props.ref.current = expanded
   return expanded
@@ -462,6 +573,18 @@ async function withAnItem(panel, title) {
   await panel.settle()
 }
 
+/** Fill the create dialog with a TODO and confirm it; the panel is already open. */
+async function submitNewTodo(panel, title, content = '正文') {
+  panel.click(panel.byLabel('action.create'))
+  await panel.settle()
+  fieldByLabel(panel, 'field.title').props.onChange({ target: { value: title } })
+  await panel.settle()
+  panel.byClass('hub-textarea').props.onChange?.({ target: { value: content } })
+  await panel.settle()
+  panel.click(panel.byText('action.confirm'))
+  await panel.settle()
+}
+
 /** Drive the panel to a stored Note on the Note tab, and back to the TODO tab. */
 async function withANote(panel, title) {
   panel.click(panel.byText('tab.note'))
@@ -509,10 +632,56 @@ function drawnNames(panel) {
   return drawnItems(panel).map(node => textOf(findNode(node, child => child.props?.className === 'hub-item-name')))
 }
 
-/** Scroll the body, the way the browser does. */
+/** Scroll the body, the way the browser does: set the node's offset, then fire. */
 async function scrollBody(panel, top) {
-  panel.byClass('hub-body').props.onScroll({ target: { scrollTop: top } })
+  const body = panel.byClass('hub-body')
+  body.scrollTop = top
+  body.props.onScroll({ target: { scrollTop: top } })
   await panel.settle()
+}
+
+/**
+ * Hover an item and wait for the preview to open.
+ *
+ * The delay is the point of the interaction — a pointer crossing the list must
+ * not flash a card per row — so the test waits for it rather than firing the
+ * timer by hand. It polls rather than sleeping a fixed span: the armed timeout
+ * is a real one, and a loaded machine can fire it later than its nominal 260ms.
+ *
+ * @param panel The driver.
+ * @param name The item's name.
+ * @param point The pointer position in client coordinates.
+ * @returns The item node whose pointer entered.
+ */
+async function hoverItem(panel, name, point = { x: 300, y: 240 }) {
+  const item = itemNamed(panel, name)
+  assert.ok(item !== undefined, `the item ${name} must be drawn`)
+  const placed = () => /translate\(-?\d+px, -?\d+px\)/.test(panel.byClass('hub-preview')?.style?.transform ?? '')
+  item.props.onPointerEnter({ clientX: point.x, clientY: point.y, pointerType: 'mouse' })
+  await panel.settle()
+  for (let attempt = 0; attempt < 40 && !placed(); attempt += 1) {
+    await pause(25)
+    await panel.settle()
+  }
+  // The card can appear between a poll's settle and its condition check, so
+  // drain once more before a caller reads the direct placement off it.
+  await panel.settle()
+  assert.ok(placed(), `hovering ${name} must open and place the preview`)
+  return item
+}
+
+/** Move the pointer over the body, the way the browser does. */
+function movePointerTo(panel, point) {
+  panel.byClass('hub-body').props.onPointerMove({ clientX: point.x, clientY: point.y })
+}
+
+/** The hover preview's offset inside the surface, parsed from its transform. */
+function previewOffset(panel) {
+  const node = panel.byClass('hub-preview')
+  assert.ok(node !== undefined, 'the hover preview must be on screen')
+  const match = /translate\((-?\d+)px, (-?\d+)px\)/.exec(node.style.transform ?? '')
+  assert.ok(match !== null, `the preview must carry a placement, got ${node.style.transform}`)
+  return { x: Number(match[1]), y: Number(match[2]) }
 }
 
 /** A picked file, the way the platform hands one to the panel. */
@@ -2039,6 +2208,512 @@ test('a windowed region still folds, and folds to its count', async () => {
   assert.equal(regionNamed(panel, 'status.pending').props['data-open'], 'false')
   assert.equal(drawnItems(panel).length, 0, 'and a folded region draws none of its rows')
   assert.match(textOf(head), /240 count\.unit/, 'the header still counts the whole region')
+})
+
+/* --- a status change stays local ------------------------------------------- */
+
+test('a status change merges the one row instead of re-reading the list', async () => {
+  // The defect this section guards: the status write used to be followed by a
+  // `list()`, which put the body back into its loading skeleton. The body is
+  // the scroll container, so that reload is the panel "reset" the reader sees:
+  // a short flash of skeleton and then the list from the top.
+  const panel = await withSeeded(3)
+  const reads = listCalls
+  const writes = updateCalls
+
+  await setStatusNamed(panel, '任务 0', 'status.done')
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  assert.equal(listCalls, reads, 'the status write must not re-read the whole document')
+  assert.equal(updateCalls, writes + 1, 'it writes exactly the one item it changed')
+  assert.equal(panel.byClass('hub-skel-grid'), undefined, 'and the body never leaves the list')
+  assert.deepEqual(namesIn(regionNamed(panel, 'status.pending')), ['任务 1', '任务 2'],
+    'the item left the status it was in')
+  const landed = regionNamed(panel, 'status.done')
+  assert.ok(landed !== undefined, 'the status it moved into has a region')
+  assert.equal(landed.props['data-open'], 'true', 'which opened itself')
+  assert.deepEqual(namesIn(landed), ['任务 0'], 'and holds the row it moved')
+  assert.equal(stored().find(item => item.title === '任务 0').status, 'done',
+    'the store is still the source of the status that is shown')
+})
+
+test('choosing the status an item already has writes nothing', async () => {
+  // The checked row in the picker is not a change. Writing it would only
+  // restamp `updatedAt`, and reloading the list for it is the same reset.
+  const panel = await withSeeded(3)
+  const reads = listCalls
+  const writes = updateCalls
+
+  await setStatusNamed(panel, '任务 0', 'status.pending')
+
+  assert.equal(updateCalls, writes, 'a pick that changes nothing must not be written')
+  assert.equal(listCalls, reads, 'and must not reload the list either')
+  assert.equal(panel.byClass('hub-popover'), undefined, 'the picker still closes')
+})
+
+test('a scrolled list keeps its offset across a status change', async () => {
+  // Medium list: below the windowing threshold, so every row is drawn and the
+  // only thing that can move the view is the panel itself.
+  const panel = await withSeeded(150)
+  await scrollBody(panel, 4200)
+  assert.equal(panel.byClass('hub-body').scrollTop, 4200, 'the body starts where the test put it')
+  const reads = listCalls
+  const drawn = drawnItems(panel).length
+
+  await setStatusNamed(panel, '任务 7', 'status.doing')
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  assert.equal(listCalls, reads, 'the change lands without a reload')
+  assert.equal(panel.byClass('hub-body').scrollTop, 4200,
+    'the body is left exactly where the user had it')
+  assert.equal(drawnItems(panel).length, drawn, 'every row is still drawn')
+  assert.deepEqual(namesIn(regionNamed(panel, 'status.doing')), ['任务 7'],
+    'the item moved to the status that was picked')
+})
+
+test('a long list keeps its window and its offset at the bottom', async () => {
+  const panel = await withSeeded(240)
+  await scrollBody(panel, 26000)
+  const before = drawnNames(panel)
+  assert.equal(before.at(-1), '任务 239', 'the window is at the bottom to begin with')
+  const reads = listCalls
+
+  await setStatusNamed(panel, '任务 239', 'status.done')
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  assert.equal(listCalls, reads, 'the change lands without a reload')
+  assert.equal(panel.byClass('hub-skel-grid'), undefined, 'the body never leaves the list')
+  assert.equal(panel.byClass('hub-body').scrollTop, 26000, 'the offset is left alone')
+  assert.ok(drawnItems(panel).length < 240, 'still a window, not the whole list')
+  assert.equal(drawnNames(panel)[0], before[0], 'the same window, not back to the top')
+  const landed = regionNamed(panel, 'status.done')
+  assert.ok(landed !== undefined, 'the finished region is drawn')
+  assert.deepEqual(namesIn(landed), ['任务 239'], 'with the row that moved into it')
+})
+
+test('an offset the browser clamps before the row lands is put back', async () => {
+  // A scroll container whose content shrinks clamps its offset, and the commit
+  // that changes the rows is the usual cause. This simulates the clamp landing
+  // between the arm and that commit: the restore must win over the clamp it
+  // caused. A scroll by the reader is the other case, and it withdraws the
+  // restore instead (see the next test).
+  const panel = await withSeeded(240)
+  await scrollBody(panel, 26000)
+  await openPicker(panel, '任务 239')
+  const row = popoverRow(panel, 'status.done')
+  assert.ok(row !== undefined, 'the picker must offer the finished status')
+
+  click(row)
+  // The write is now in flight. Simulate the clamp a collapse would cause.
+  bodyScrollTop = 0
+  await panel.settle()
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  assert.equal(panel.byClass('hub-body').scrollTop, 26000,
+    'the offset the user was reading from is restored, not reset to the top')
+  assert.equal(drawnNames(panel).at(-1), '任务 239', 'and the window still shows the bottom')
+})
+
+test('a delete whose Host answers nothing still removes the row, without an undo', async () => {
+  const panel = await mountPanel()
+  await withAnItem(panel, '发布检查清单')
+  const reads = listCalls
+  emptyDeletes = true
+  try {
+    await deleteFirstItem(panel)
+  }
+  finally {
+    emptyDeletes = false
+  }
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  assert.equal(listCalls, reads, 'the removal is taken from the write, not from a reload')
+  assert.equal(stored().length, 0, 'the row is gone from the store')
+  assert.ok(panel.byClass('hub-notice') !== undefined, 'and the delete is acknowledged')
+  assert.equal(panel.find(node => node.props?.className === 'hub-notice-action'), undefined,
+    'no undo control that would do nothing')
+})
+
+test('a write the panel cannot read back falls back to a quiet read', async () => {
+  // The Host stored the row but answered with something that is not an item.
+  // Reading the list is the only way to show the truth; it is quiet, so the
+  // body does not fall back to its skeleton, and the read still opens the
+  // region the row landed in.
+  const panel = await mountPanel()
+  panel.expand()
+  await panel.settle()
+  const reads = listCalls
+  blankWrites = true
+  try {
+    await submitNewTodo(panel, '回读条目')
+  }
+  finally {
+    blankWrites = false
+  }
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  assert.equal(listCalls, reads + 1, 'the fallback reads the list exactly once')
+  assert.equal(panel.byClass('hub-skel-grid'), undefined, 'and does not drop the body to its skeleton')
+  assert.ok(itemNamed(panel, '回读条目') !== undefined, 'the stored row is drawn from the read')
+  const pending = regionNamed(panel, 'status.pending')
+  assert.ok(pending !== undefined, 'the region the row landed in is drawn')
+  assert.equal(pending.props['data-open'], 'true', 'and opened, as a landed row owns')
+})
+
+test('a status change the panel cannot read back still opens the region it landed in', async () => {
+  const panel = await withSeeded(3)
+  blankWrites = true
+  try {
+    await setStatusNamed(panel, '任务 0', 'status.done')
+  }
+  finally {
+    blankWrites = false
+  }
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  const done = regionNamed(panel, 'status.done')
+  assert.ok(done !== undefined, 'the region the row moved into is drawn')
+  assert.equal(done.props['data-open'], 'true', 'and opened from the read')
+  assert.deepEqual(namesIn(done), ['任务 0'])
+})
+
+test('a write that lands after a failed quiet read clears the failure surface', async () => {
+  // The undo reads once before deciding create vs update. If that read fails
+  // but the write lands, the restored row must not hide behind a stale failure
+  // panel: the write's own answer is proof the carrier is back.
+  const panel = await mountPanel()
+  await withAnItem(panel, '发布检查清单')
+  await deleteFirstItem(panel)
+  failNextList = true
+  const undo = panel.find(node => node.props?.className === 'hub-notice-action')
+  assert.ok(undo !== undefined, 'the notice offers the undo')
+
+  panel.click(undo)
+  await panel.settle()
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  assert.equal(panel.byClass('hub-broken'), undefined, 'the restored row is not behind a stale failure')
+  assert.ok(itemNamed(panel, '发布检查清单') !== undefined, 'and it is on screen')
+  assert.equal(stored().length, 1, 'the record is back')
+})
+
+test('a reader who scrolls while the write is in flight is not pulled back', async () => {
+  // The restore belongs to the click, and a newer scroll outranks it.
+  const panel = await withSeeded(240)
+  await scrollBody(panel, 26000)
+  await openPicker(panel, '任务 239')
+  const row = popoverRow(panel, 'status.done')
+  assert.ok(row !== undefined, 'the picker must offer the finished status')
+
+  click(row)
+  // The write is in flight; the user scrolls somewhere else meanwhile.
+  await scrollBody(panel, 12000)
+  await panel.settle()
+
+  assert.equal(panel.byClass('hub-body').scrollTop, 12000,
+    'the newer scroll wins over the offset the click armed')
+})
+
+test('a new TODO is merged into the list instead of re-reading it', async () => {
+  // The same reset as a status change, on the create path: the write used to be
+  // followed by `list()`, so the body became its skeleton and the scroll was
+  // lost. The Host answers with the row it stored, which is what is adopted.
+  const panel = await withSeeded(3)
+  const reads = listCalls
+  const creates = createCalls
+
+  await submitNewTodo(panel, '新任务')
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  assert.equal(listCalls, reads, 'creating must not re-read the document')
+  assert.equal(createCalls, creates + 1, 'it is exactly one create')
+  assert.equal(stored().length, 4, 'the row reaches the store')
+  assert.equal(panel.byClass('hub-skel-grid'), undefined, 'the body never leaves the list')
+  assert.match(textOf(panel.byClass('hub-meta')), /4 count\.unit/, 'the list counts it')
+  assert.ok(namesIn(regionNamed(panel, 'status.pending')).includes('新任务'),
+    'and it is drawn in the region the Host filed it under')
+})
+
+test('creating a TODO at the bottom of a long list keeps the offset', async () => {
+  const panel = await withSeeded(240)
+  await scrollBody(panel, 26000)
+  const reads = listCalls
+
+  await submitNewTodo(panel, '底部新建')
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  assert.equal(listCalls, reads, 'the create lands without a reload')
+  assert.equal(panel.byClass('hub-skel-grid'), undefined, 'the body never leaves the list')
+  assert.equal(panel.byClass('hub-body').scrollTop, 26000, 'the offset is put back')
+  assert.equal(stored().length, 241, 'the row reaches the store')
+  assert.match(textOf(panel.byClass('hub-meta')), /241 count\.unit/)
+})
+
+test('editing a TODO merges the one row back without re-reading the list', async () => {
+  const panel = await withSeeded(3)
+  const reads = listCalls
+  const writes = updateCalls
+
+  panel.click(itemNamed(panel, '任务 1'))
+  await panel.settle()
+  panel.click(panel.byText('action.edit'))
+  await panel.settle()
+  fieldByLabel(panel, 'field.title').props.onChange({ target: { value: '改过的任务' } })
+  await panel.settle()
+  panel.click(panel.byText('action.confirm'))
+  await panel.settle()
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  assert.equal(listCalls, reads, 'an edit must not re-read the document')
+  assert.equal(updateCalls, writes + 1, 'it writes the one row it changed')
+  assert.ok(itemNamed(panel, '改过的任务') !== undefined, 'the row shows what the Host stored')
+  assert.equal(stored().find(item => item.title === '改过的任务').status, 'pending',
+    'and the status it carried is untouched')
+})
+
+test('deleting and undoing keep the list and the offset', async () => {
+  const panel = await withSeeded(240)
+  await scrollBody(panel, 26000)
+  const reads = listCalls
+
+  panel.click(panel.byLabel('action.delete'))
+  await panel.settle()
+  panel.click(panel.byText('action.confirm'))
+  await panel.settle()
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  assert.equal(listCalls, reads, 'a delete lands without re-reading the document')
+  assert.equal(panel.byClass('hub-skel-grid'), undefined, 'the body never leaves the list')
+  assert.equal(panel.byClass('hub-body').scrollTop, 26000, 'the offset is kept')
+  assert.equal(stored().length, 239, 'the row leaves the store')
+  const undo = panel.find(node => node.props?.className === 'hub-notice-action')
+  assert.ok(undo !== undefined, 'the notice offers the undo')
+
+  panel.click(undo)
+  await panel.settle()
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  // The undo reads the list once, to decide create or update. Quietly: the
+  // body keeps its rows, so the offset is not clamped away.
+  assert.equal(listCalls, reads + 1, 'the undo re-reads once, to decide the write')
+  assert.equal(panel.byClass('hub-skel-grid'), undefined, 'without dropping the body')
+  assert.equal(panel.byClass('hub-body').scrollTop, 26000, 'and the offset is restored')
+  assert.equal(stored().length, 240, 'the row is back')
+})
+
+test('a status definition write refreshes quietly, keeping the offset', async () => {
+  // A definition change can restamp rows the write does not return, so it does
+  // re-read. The read is quiet: the body keeps its rows, so the offset is not
+  // clamped away while the refresh lands.
+  const panel = await withSeeded(240)
+  await scrollBody(panel, 26000)
+  await openManager(panel)
+  const reads = listCalls
+  const body = panel.byClass('hub-body')
+
+  const row = managerRow(panel, 'status.pending')
+  click(rowSwatch(row))
+  await panel.settle()
+  click(toneSwatch(panel, 'danger'))
+  await panel.settle()
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  assert.equal(listCalls, reads + 1, 'the definition write re-reads the list once')
+  assert.equal(panel.byClass('hub-skel-grid'), undefined, 'without dropping the body to its skeleton')
+  assert.equal(body.scrollTop, 26000, 'and the offset the reader was at is kept')
+})
+
+/* --- the hover preview ----------------------------------------------------- */
+
+test('hovering a TODO previews its full title and body beside the pointer', async () => {
+  // The narrow-window defect this exists for: a row clamps its text — three
+  // lines in the grid, one in the list — so the full body was reachable only by
+  // clicking through the detail dialog. Hovering is the shortcut.
+  const panel = await mountPanel(store => {
+    store.create({ kind: 'todo', title: '完整的标题', description: `正文${'很长'.repeat(40)}` })
+  })
+  panel.expand()
+  await panel.settle()
+  panel.click(regionHead(panel, 'status.pending'))
+  await panel.settle()
+  globalThis.innerWidth = 1280
+  globalThis.innerHeight = 800
+  rects.set('hub-surface', rect(100, 40, 400, 560))
+  rects.set('hub-preview', rect(0, 0, 300, 180))
+  try {
+    await hoverItem(panel, '完整的标题', { x: 300, y: 240 })
+    const preview = panel.byClass('hub-preview')
+    assert.ok(preview !== undefined, 'hovering must open the preview')
+    assert.equal(preview.props['aria-hidden'], 'true',
+      'it is a pointer shortcut, not a second reading surface for the assistive layer')
+    assert.match(textOf(preview), /完整的标题/, 'the full title is shown')
+    assert.match(textOf(preview), /很长很长/, 'and the full body, not the row clamped slice')
+
+    // Beside the pointer, in the surface's own coordinates: the surface sits at
+    // (100, 40), so a card at (314, 254) is (214, 214) inside it.
+    assert.deepEqual(previewOffset(panel), { x: 214, y: 214 })
+
+    const renders = panel.renders
+    movePointerTo(panel, { x: 200, y: 120 })
+    assert.deepEqual(previewOffset(panel), { x: 114, y: 94 }, 'the card follows the pointer')
+    assert.equal(panel.renders, renders, 'following the pointer must not re-render the list')
+  }
+  finally {
+    rects.clear()
+    delete globalThis.innerWidth
+    delete globalThis.innerHeight
+  }
+})
+
+test('a narrow window keeps the preview inside the viewport', async () => {
+  // 360x640 with a 320x180 card: at the pointer's lower right the card would run
+  // off both edges, so it flips to the other side of the pointer and is then
+  // clamped 8px inside the window — (8, 306) on screen, (8, 266) inside a
+  // surface whose top edge is at 40.
+  const panel = await withSeeded(3)
+  globalThis.innerWidth = 360
+  globalThis.innerHeight = 640
+  rects.set('hub-surface', rect(0, 40, 320, 560))
+  rects.set('hub-preview', rect(0, 0, 320, 180))
+  try {
+    await hoverItem(panel, '任务 2', { x: 340, y: 500 })
+    assert.deepEqual(previewOffset(panel), { x: 8, y: 266 },
+      'a narrow window must not push the card past the edge')
+  }
+  finally {
+    rects.clear()
+    delete globalThis.innerWidth
+    delete globalThis.innerHeight
+  }
+})
+
+test('the preview leaves with the pointer, a scroll and the click', async () => {
+  const panel = await withSeeded(3)
+  await hoverItem(panel, '任务 1')
+  assert.ok(panel.byClass('hub-preview') !== undefined, 'it opens on hover')
+
+  // Re-fetch the row: the preview opening re-rendered the tree, so the node
+  // captured before it is the previous render's.
+  itemNamed(panel, '任务 1').props.onPointerLeave()
+  await panel.settle()
+  assert.equal(panel.byClass('hub-preview'), undefined, 'leaving the row closes it')
+
+  await hoverItem(panel, '任务 1')
+  await scrollBody(panel, 120)
+  assert.equal(panel.byClass('hub-preview'), undefined,
+    'a scroll takes the row out from under the card')
+
+  await scrollBody(panel, 0)
+  await hoverItem(panel, '任务 1')
+  panel.click(itemNamed(panel, '任务 1'))
+  await panel.settle()
+  const modal = panel.byClass('hub-modal')
+  assert.ok(modal !== undefined, 'the click still opens the detail dialog')
+  assert.match(textOf(modal), /任务 1/, 'showing the item the row stood for')
+  assert.equal(panel.byClass('hub-preview'), undefined, 'and the preview gives way to it')
+})
+
+test('the preview waits for hover intent, and a leave before it cancels it', async () => {
+  const panel = await withSeeded(3)
+  const item = itemNamed(panel, '任务 1')
+  item.props.onPointerEnter({ clientX: 300, clientY: 240, pointerType: 'mouse' })
+  await panel.settle()
+  assert.equal(panel.byClass('hub-preview'), undefined,
+    'a pointer crossing the list must not flash a card per row')
+
+  item.props.onPointerLeave()
+  await panel.settle()
+  await pause(300)
+  await panel.settle()
+  assert.equal(panel.byClass('hub-preview'), undefined, 'and a leave cancels the pending card')
+})
+
+test('a tab switch or a query keystroke closes the preview', async () => {
+  // Neither of those fires a `pointerleave` on the row they replace, so the
+  // panel has to cancel an armed card itself — and close one already open.
+  const panel = await withSeeded(3)
+  const item = itemNamed(panel, '任务 1')
+  item.props.onPointerEnter({ clientX: 300, clientY: 240, pointerType: 'mouse' })
+  await panel.settle()
+
+  panel.click(panel.byText('tab.note'))
+  await panel.settle()
+  await pause(300)
+  await panel.settle()
+  assert.equal(panel.byClass('hub-preview'), undefined, 'a tab switch cancels the armed card')
+
+  panel.click(panel.byText('tab.todo'))
+  await panel.settle()
+  await hoverItem(panel, '任务 1')
+  const search = panel.find(node => node.props?.className === 'hub-search')
+  search.props.onChange({ target: { value: '任务 2' } })
+  await panel.settle()
+  assert.equal(panel.byClass('hub-preview'), undefined, 'a query change closes it')
+})
+
+test('the hover preview is a TODO affordance, not a Note or a touch path', async () => {
+  const panel = await mountPanel()
+  await withAnItem(panel, '发布检查清单')
+  await withANote(panel, '一条笔记')
+  panel.click(panel.byText('tab.note'))
+  await panel.settle()
+  const note = panel.byClass('hub-card') ?? panel.byClass('hub-row')
+  note.props.onPointerEnter({ clientX: 200, clientY: 200, pointerType: 'mouse' })
+  await panel.settle()
+  await pause(300)
+  await panel.settle()
+  assert.equal(panel.byClass('hub-preview'), undefined, 'a Note has no preview')
+
+  panel.click(panel.byText('tab.todo'))
+  await panel.settle()
+  const todo = itemNamed(panel, '发布检查清单')
+  todo.props.onPointerEnter({ clientX: 200, clientY: 200, pointerType: 'touch' })
+  await panel.settle()
+  await pause(300)
+  await panel.settle()
+  assert.equal(panel.byClass('hub-preview'), undefined, 'touch has no hover path')
+})
+
+test('the hover preview is a click-through surface built from tokens', () => {
+  // The card is decoration over a row the user may be about to click: it must
+  // never take that click, and it must follow the theme like every other
+  // floating surface in the panel.
+  const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
+  assert.match(source, /\.hub-preview \{[^}]*pointer-events: none;/,
+    'the card must not intercept the click that opens the detail dialog')
+  assert.match(source, /\.hub-preview \{[^}]*z-index: 2;/,
+    'and its layer must stay below the tab capsule and the notice')
+  assert.match(source, /\.hub-preview \{[^}]*background: var\(--hub-raised\);/,
+    'it sits on the same raised plane as the other floating surfaces')
+  assert.match(source, /\.hub-preview-title \{[^}]*font-weight: 500;/,
+    'the title is the only heavier ink, and weight tops out at 500')
+})
+
+test('the body ref still feeds the measuring observer', async () => {
+  // The harness never invokes a callback ref — it assigns `.current`, which is
+  // how the panel reads it. The body's ref also has to run the measuring ref,
+  // or the ResizeObserver never sees the body and the window has no viewport.
+  const observed = []
+  const previous = globalThis.ResizeObserver
+  globalThis.ResizeObserver = class {
+    observe(node) { observed.push(node) }
+    disconnect() {}
+  }
+  try {
+    const panel = await mountPanel()
+    panel.expand()
+    await panel.settle()
+    const body = panel.byClass('hub-body')
+    body.props.ref(body)
+    assert.ok(observed.includes(body), 'the body must reach the measuring ref')
+    // The measuring ref sets state, which queues a render: drain it here so the
+    // next test's settle does not inherit this one's effects.
+    await panel.settle()
+  }
+  finally {
+    if (previous === undefined) delete globalThis.ResizeObserver
+    else globalThis.ResizeObserver = previous
+  }
 })
 
 /* --- export ---------------------------------------------------------------- */

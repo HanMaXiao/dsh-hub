@@ -466,6 +466,7 @@ pointer or the keyboard just did; there is no ambient animation in the panel.
 | notice | rises from above the tab capsule, 190ms |
 | press | `scale(.97)` on buttons, 110ms |
 | list arrival | keyed items rise 5px, staggered 16ms per step, **capped at step 8** |
+| hover preview | fades in, 110ms — opacity only, so the card's placement is never animated away from the pointer |
 
 The stagger rides the keys rather than a timer: React mounts a new node only
 when the content really changed, so a sort that merely reorders what is already
@@ -526,6 +527,39 @@ most one action, and a tone. It is also the only place an undo exists.
   `aria-live="assertive"`; a receipt or a warning is `role="status"` with
   `aria-live="polite"`; both are `aria-atomic="true"`, because a failure may
   name a path and a fragment is not the message.
+
+### 8.5 The hover preview
+
+A row is a summary: its name is one line and its body is clamped — three lines
+in the grid, one in the list. Pointing at a **TODO** for a moment opens **one
+hover preview** for the panel: the full title and the full body, wrapped, with
+no line clamp of its own.
+
+- **It is a shortcut beside the click, never a replacement.** The row keeps its
+  `role="button"` and its click-to-detail; the preview takes no pointer input,
+  so a click that lands on it is the row's and opens the detail dialog as
+  before. Its layer sits below the tab capsule and the notice, so a card near
+  the panel's bottom edge cannot cover the undo control or a tab.
+- **Hover intent, not hover.** The card opens after a short delay (~260 ms) and
+  closes at once when the pointer leaves the row, the body scrolls, or anything
+  modal opens. A pointer crossing the list must not flash a card per row. Any
+  change of what is drawn — a tab switch, a query keystroke, a fold, a refresh —
+  also closes it: those replace the row without a `pointerleave`.
+- **It follows the pointer and obeys the window.** The card is placed beside
+  the pointer, flips to the pointer's other side when it would leave the
+  window, and is finally clamped clear of the edges. Its width is capped at the
+  window width, so the same surface serves a narrow and a wide window.
+- **The window bounds the card, not the row.** The card's height is capped at
+  the window height; a body longer than that is clipped, because a
+  click-through card must not become a second reading surface — the detail
+  dialog is where a document-sized body is read in full.
+- **One plane, like the other floating surfaces.** Background
+  `--dsw-alias-bg-layer-3`, the border and shadow the status popover uses; the
+  title in 500 weight, the body in secondary ink. Entry motion is opacity only,
+  and `prefers-reduced-motion` removes it.
+- **It is decorative for the assistive layer.** The preview is `aria-hidden`;
+  the row already carries its name, and the detail dialog remains the
+  accessible surface for the full text.
 
 ## 9. Docking
 

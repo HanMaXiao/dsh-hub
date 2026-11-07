@@ -40,8 +40,10 @@ written as an update so the undo cannot duplicate it.
 renders, so the `state.items` its closure was built with predates the delete
 that produced it. An undo that trusted that copy would see the item still
 listed and take the update branch for a row the store no longer has. `undoDelete`
-therefore `load()`s first, decides on the fresh list, and loads again after the
-write; two reads on an undo is the price of not reading a stale one.
+therefore reads with `load({ quiet: true })` first, decides on the fresh list,
+and adopts the row the write answers with. The read is quiet so the rows on
+screen stay while it lands; one read on an undo is the price of not reading a
+stale one.
 
 **The notice is now a change of state the assistive layer perceives.** A
 failure renders as `role="alert"` with `aria-live="assertive"` — the one
@@ -93,8 +95,9 @@ notice they are already looking at.
 - Nothing new is persisted and no Host state is added. The removed item exists
   only while its notice does; a reload loses the window, which is the same
   answer a reload gives every other in-memory affordance.
-- An undo costs two `list` calls: one to choose between create and update, one
-  to draw the result. It is a rare path and both reads are the ordinary ones.
+- An undo costs one `list` read: the one that decides between create and
+  update. The restored row comes back in the write's response, so there is no
+  second read.
 - A Host that returns nothing from `delete` gets a plain "Deleted" notice with
   no control, rather than an undo button that would do nothing. That is the
   skew case, and it is reported by absence instead of by a dead control.
@@ -119,6 +122,10 @@ notice they are already looking at.
 - [DESIGN.md](../../../../DESIGN.md) §5 the item fields and §8 the modals — the
   facts this decision works within; the notice itself is a Client surface
   DESIGN does not name.
+- [Agent Note: adopt the write's row, and keep the reader's
+  place](../architecture/2026-11-07-adopt-the-write-row-and-keep-the-readers-place.md) —
+  owns how a write's answer is applied and why the undo's pre-write read is
+  quiet.
 - [Agent Note: windowed long lists, and a panel that exports and imports
   itself](./2026-10-30-windowed-lists-import-export.md) — owns the reason an
   import goes through `create`/`update` rather than a new method, which is the
