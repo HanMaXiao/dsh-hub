@@ -203,9 +203,12 @@ pane is what makes it sit on the card instead of over it.
   Host is behind and names the field, and the panel still renders. The same
   skew notice already covers `title`; `status` joins the key list it checks.
 - **The definitions are the Host's, so they cost a round trip.** Every rename,
-  every tone change and every reorder is a write followed by a reload. A
-  rename commits on blur rather than on every keystroke, because a write per
-  character is a write per character.
+  every tone change and every reorder is a write followed by a re-read of the
+  list — a terminal flag can restamp rows the definition does not carry, so the
+  write alone cannot say what the list looks like. The read is quiet, so the
+  rows on screen stay while the new definitions land. A rename commits on blur
+  rather than on every keystroke, because a write per character is a write per
+  character.
 - **A terminal flag is user data, and it moves items between the regions.** A
   definition retired as "finished" brings its tasks with it, and the re-stamp
   keeps the log's order honest.
