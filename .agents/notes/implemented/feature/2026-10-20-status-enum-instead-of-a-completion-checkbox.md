@@ -53,10 +53,10 @@ build — is mapped the same way, so a stale panel still writes a completion
 instead of dropping it. `SCHEMA_VERSION` stays at 1: a document written before
 the enum existed is still a valid v1 document.
 
-An **unknown status id is rejected**, on the same terms as an unknown `kind`
-or `priority` and with the same reason: there is no defensible default for a
-state nobody defined. Guessing would file a task under a state its user never
-chose.
+An **unknown status id is rejected**, on the same terms as an unknown `kind`,
+`priority` or `importance` and with the same reason: there is no defensible
+default for a state nobody defined. Guessing would file a task under a state
+its user never chose.
 
 ### The definitions are the Host's, like the items
 

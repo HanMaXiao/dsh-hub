@@ -37,8 +37,8 @@ truncate the document. Reads distinguish three states deliberately: a missing
 file is an empty store, an unreadable or malformed file is a **loud failure
 naming the path**, and only the first is allowed to look like nothing having
 happened. The document carries a schema version field. Every write is
-validated on the Host, which rejects an unknown `kind`, `priority` or `status`
-with a message naming the offending field.
+validated on the Host, which rejects an unknown `kind`, `priority`, `importance`
+or `status` with a message naming the offending field.
 
 Images and files are stored inline as base64 data URLs inside that one
 document. `maxImageBytes` is a `Config` field (default 2 MiB) measured on the
@@ -177,8 +177,8 @@ possibility.
 ## Testing
 
 `node --test` covers `lib/`: id generation, item validation including the
-unknown-`kind` and unknown-`priority` rejections, and the atomic store's
-missing, malformed, and round-trip behavior. The `client.js` half no longer has
+unknown-`kind`, unknown-`priority` and unknown-`importance` rejections, and the
+atomic store's missing, malformed, and round-trip behavior. The `client.js` half no longer has
 no harness: `tests/client-panel.test.js` loads the bundle through a stub module
 table and a minimal React and drives the panel through its flows, which is what
 catches an undeclared identifier that `node --check` and a text-reading test both

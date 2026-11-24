@@ -991,6 +991,21 @@ test('the toolbar sort icon and the meta readout are one menu', async () => {
     'closing it from the readout must unmark the toolbar icon too')
 })
 
+test('the sort menu offers both priority dimensions', async () => {
+  // The old single `标记` entry named one dimension while the model now has
+  // two, and a menu that hides importance would make the new field unsortable.
+  const panel = await mountPanel()
+  await withAnItem(panel)
+  panel.click(panel.byLabel('action.sort'))
+  await panel.settle()
+
+  const menu = textOf(panel.byClass('hub-menu'))
+  assert.match(menu, /sort\.priority/, 'urgency is a sort field')
+  assert.match(menu, /sort\.importance/, 'importance is a sort field')
+  assert.match(menu, /group\.priority/, 'urgency is a grouping choice')
+  assert.match(menu, /group\.importance/, 'importance is a grouping choice')
+})
+
 test('a modal holds the panel open, and the handle brings it back', async () => {
   const panel = await mountPanel()
   await withAnItem(panel)
@@ -1507,55 +1522,165 @@ async function withTheEditForm(panel, title) {
   assert.ok(panel.byClass('hub-textarea'), 'the edit form must be on screen')
 }
 
-/** The priority radio row, if the open form has one. */
-function choiceRow(panel) {
-  return panel.find(node => node.props?.className === 'hub-choices')
+/** The priority matrix plot, if the open form has one. */
+function matrixPlot(panel) {
+  return panel.byClass('hub-matrix-plot')
 }
 
-test('priority is a radio row the panel paints, not a platform select', async () => {
+/** One quadrant of the matrix. */
+function quadrant(panel, id) {
+  return panel.allByClass('hub-quadrant')
+    .find(node => node.props['data-quadrant'] === id)
+}
+
+/**
+ * Click a point inside one quadrant, in the quadrant's own coordinates.
+ *
+ * The panel reads the click's position from `currentTarget` and the pointer,
+ * which is exactly what a real DOM event carries. The harness lays nothing out,
+ * so this helper hands it a 100x100 box and translates the fractions.
+ */
+async function clickQuadrantAt(panel, id, x, y) {
+  const control = quadrant(panel, id)
+  assert.ok(control !== undefined, `the ${id} quadrant must be offered`)
+  control.props.onClick({
+    currentTarget: { getBoundingClientRect: () => ({ left: 0, top: 0, width: 100, height: 100 }) },
+    clientX: x * 100,
+    clientY: y * 100,
+  })
+  await panel.settle()
+}
+
+/** The quadrant the matrix currently marks. */
+function markedQuadrant(panel) {
+  const marked = panel.allByClass('hub-quadrant')
+    .filter(control => control.props['aria-checked'] === 'true')
+  assert.equal(marked.length, 1, 'exactly one quadrant carries the mark')
+  return marked[0].props['data-quadrant']
+}
+
+test('the TODO form draws a four-quadrant matrix instead of a native select', async () => {
   // The native popup is drawn by the OS outside the page, in the OS's own
   // colours, so in the dark theme it opened as a white list over a dark form —
   // and no token this bundle owns reaches a surface it does not paint.
-  // `color-scheme` is not the way out either: the app already projects the
-  // resolved scheme onto the document element, and the popup stays light.
+  // The matrix is also the point: one control carries two dimensions.
   const panel = await mountPanel()
   await withTheEditForm(panel, '发布检查清单')
 
-  const group = choiceRow(panel)
-  assert.ok(group !== undefined, 'the priority field must be drawn by the panel')
-  assert.equal(group.props.role, 'radiogroup')
+  const plot = matrixPlot(panel)
+  assert.ok(plot !== undefined, 'the priority matrix must be drawn by the panel')
+  assert.equal(plot.props.role, 'radiogroup')
   assert.equal(panel.find(node => node.type === 'select'), undefined,
     'a native select popup cannot follow the app theme')
-  assert.equal(group.children.length, 4, 'every priority must be offered')
-
-  const marked = group.children.filter(choice => choice.props['aria-checked'] === 'true')
-  assert.equal(marked.length, 1, 'exactly one choice carries the check')
-  assert.equal(marked[0].children[1].children[0], 'priority.normal',
-    'a new TODO opens on the default priority')
+  assert.deepEqual(
+    panel.allByClass('hub-quadrant').map(control => control.props['data-quadrant']),
+    ['plan', 'do', 'drop', 'delegate'],
+    'all four quadrants of the doctrine are offered',
+  )
+  assert.equal(markedQuadrant(panel), 'drop',
+    'the normal/normal default sits in the low/low quadrant')
 })
 
-test('choosing a priority writes it through the Remote', async () => {
+test('a keyboard activation lands on the quadrant pair, not on a zero point', async () => {
+  // A synthetic click from Enter/Space reports `detail: 0` and coordinates at
+  // the origin; reading those as a position would file the task at the
+  // quadrant's edge instead of the pair the keyboard user chose.
   const panel = await mountPanel()
   await withTheEditForm(panel, '发布检查清单')
 
-  const next = choiceRow(panel).children.find(choice => choice.props['aria-checked'] === 'false')
-  panel.click(next)
+  quadrant(panel, 'do').props.onClick({
+    currentTarget: { getBoundingClientRect: () => ({ left: 0, top: 0, width: 100, height: 100 }) },
+    clientX: 0,
+    clientY: 0,
+    detail: 0,
+  })
   await panel.settle()
 
-  const after = choiceRow(panel)
-  assert.equal(after.children.length, 4, 'the row redraws rather than losing its choices')
-  const marked = after.children.filter(choice => choice.props['aria-checked'] === 'true')
-  assert.equal(marked[0].children[1].children[0], 'priority.low',
-    'the check must travel to the chosen priority')
+  assert.equal(markedQuadrant(panel), 'do')
+  assert.match(textOf(panel.byClass('hub-matrix-current')), /field\.importance importance\.high/)
+  assert.match(textOf(panel.byClass('hub-matrix-current')), /field\.urgency priority\.high/)
+})
+
+test('one click writes both dimensions, and a later click replaces the pair', async () => {
+  const panel = await mountPanel()
+  await withTheEditForm(panel, '发布检查清单')
+
+  // Top-right of the do quadrant: the highest urgency and the highest importance.
+  await clickQuadrantAt(panel, 'do', 0.9, 0.1)
+  assert.equal(markedQuadrant(panel), 'do')
+  assert.match(textOf(panel.byClass('hub-matrix-current')), /field\.importance importance\.critical/)
+  assert.match(textOf(panel.byClass('hub-matrix-current')), /field\.urgency priority\.urgent/)
+
+  // A second click is a replacement, not an accumulation: it lands in the
+  // opposite quadrant and moves both values there.
+  await clickQuadrantAt(panel, 'plan', 0.1, 0.9)
+  assert.equal(markedQuadrant(panel), 'plan')
+  assert.match(textOf(panel.byClass('hub-matrix-current')), /field\.importance importance\.high/)
+  assert.match(textOf(panel.byClass('hub-matrix-current')), /field\.urgency priority\.low/)
+
+  // And a click inside the same quadrant still moves the pair, so the mark is
+  // the point rather than the quadrant alone.
+  await clickQuadrantAt(panel, 'plan', 0.9, 0.1)
+  assert.equal(markedQuadrant(panel), 'plan')
+  assert.match(textOf(panel.byClass('hub-matrix-current')), /field\.importance importance\.critical/)
+  assert.match(textOf(panel.byClass('hub-matrix-current')), /field\.urgency priority\.normal/)
 
   panel.click(panel.byText('action.confirm'))
   await panel.settle()
 
   assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
-  assert.equal(stored()[0].priority, 'low', 'the chosen priority must reach the store')
+  assert.equal(stored()[0].priority, 'normal', 'the urgency half reached the store')
+  assert.equal(stored()[0].importance, 'critical', 'and so did the importance half')
 })
 
-test('a Note offers no priority row', async () => {
+test('a new TODO is marked through the matrix before it is created', async () => {
+  const panel = await mountPanel()
+  panel.expand()
+  await panel.settle()
+  panel.click(panel.byLabel('action.create'))
+  await panel.settle()
+  fieldByLabel(panel, 'field.title').props.onChange({ target: { value: '季度复盘' } })
+  await panel.settle()
+
+  await clickQuadrantAt(panel, 'delegate', 0.9, 0.1)
+  assert.equal(markedQuadrant(panel), 'delegate')
+  panel.click(panel.byText('action.confirm'))
+  await panel.settle()
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  assert.equal(stored()[0].priority, 'urgent')
+  assert.equal(stored()[0].importance, 'normal')
+  assert.match(textOf(panel.byClass('hub-card')), /chip\.importance importance\.normal/)
+  assert.match(textOf(panel.byClass('hub-card')), /chip\.urgency priority\.urgent/)
+})
+
+test('an existing TODO without importance opens on the default and can be re-marked', async () => {
+  // The migration path: an item written before `importance` existed must load
+  // with a value, and the matrix has to show and rewrite it.
+  const panel = await mountPanel(store => {
+    store.create({ kind: 'todo', description: '旧任务', priority: 'low' })
+  })
+  panel.expand()
+  await panel.settle()
+
+  panel.click(panel.byClass('hub-card') ?? panel.byClass('hub-row'))
+  await panel.settle()
+  panel.click(panel.byText('action.edit'))
+  await panel.settle()
+  assert.equal(markedQuadrant(panel), 'drop', 'the stored low and the default normal are shown as they are')
+  assert.match(textOf(panel.byClass('hub-matrix-current')), /field\.importance importance\.normal/)
+
+  await clickQuadrantAt(panel, 'do', 0.1, 0.9)
+  assert.equal(markedQuadrant(panel), 'do')
+  panel.click(panel.byText('action.confirm'))
+  await panel.settle()
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  assert.equal(stored()[0].priority, 'high')
+  assert.equal(stored()[0].importance, 'high')
+})
+
+test('a Note offers no priority matrix', async () => {
   const panel = await mountPanel()
   panel.expand()
   await panel.settle()
@@ -1566,7 +1691,7 @@ test('a Note offers no priority row', async () => {
   panel.byClass('hub-textarea').props.onChange?.({ target: { value: '一条笔记' } })
   await panel.settle()
 
-  assert.equal(choiceRow(panel), undefined, 'priority is a TODO field')
+  assert.equal(matrixPlot(panel), undefined, 'priority is a TODO field')
 })
 
 /** The status badge, on a card or on a row. */
@@ -2150,6 +2275,8 @@ test('a long list keeps its skeleton, and then draws a window', async () => {
     const drawn = drawnItems(panel)
     assert.ok(drawn.length > 0, 'the window has rows in it')
     assert.ok(drawn.length < 240, `a long list draws a window, not every row (got ${drawn.length})`)
+    assert.equal(panel.byClass('hub-regions').props['data-windowed'], 'true',
+      'the windowed path is marked, so the arrival animation does not replay on scroll')
     assert.equal(drawnNames(panel)[0], '任务 0', 'and it starts at the top of the list')
   }
   finally {
@@ -2172,26 +2299,85 @@ test('the window follows the scroll, and the last row is still reachable', async
     'the last row must be reachable, not stranded past the end of the scroll')
 })
 
-test('the list view windows as well, and its rows stay rows', async () => {
+test('a scrolled window reserves the skipped rows above its first row', async () => {
+  // The rows before `start` are not drawn, but their height is still part of
+  // the scroll. Without it the drawn rows sit at the top of the group and the
+  // window's scroll offset lands in empty space.
   const panel = await withSeeded(240)
+  await scrollBody(panel, 16000)
+
+  const group = panel.byClass('hub-group')
+  const rowsAt = group.children.findIndex(child => child.props?.className === 'hub-rows' || child.props?.className === 'hub-grid')
+  assert.ok(rowsAt > 0, 'the drawn rows have a spacer before them')
+  const pad = Number.parseFloat(group.children[rowsAt - 1].props.style.height)
+  const pitch = panel.byClass('hub-row') === undefined ? 112 : 70
+  const first = drawnNames(panel)[0]
+  const index = Number(first.replace('任务 ', ''))
+  assert.equal(pad, index * pitch,
+    'the spacer above the window is exactly the rows it skipped')
+  assert.ok(pad > 0, 'a deep scroll has skipped rows to reserve')
+})
+
+test('a scroll past the content clamps instead of blanking the panel', async () => {
+  // A fold, filter or sort can shrink the list under a scroll position that was
+  // valid a moment ago. The offset is clamped to the document, so the window
+  // still draws the last block instead of returning nothing and leaving the
+  // body blank until the next scroll event.
+  const panel = await withSeeded(240)
+  await scrollBody(panel, 999999)
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  assert.ok(panel.allByClass('hub-region').length > 0, 'the panel still has its region')
+  assert.ok(drawnItems(panel).length > 0, 'the window clamps to the content instead of going blank')
+  assert.equal(drawnNames(panel).at(-1), '任务 239', 'and the last row is what the clamp shows')
+})
+
+test('scrolling a window is a render slice, not a store read', async () => {
+  // The window moves over items already in memory. A scroll must not call the
+  // Remote again, or "new data" would mean a network read rather than a slice.
+  const panel = await withSeeded(240)
+  const reads = listCalls
+  await scrollBody(panel, 16000)
+  await scrollBody(panel, 0)
+
+  assert.equal(listCalls, reads, 'scrolling must not call list again')
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+})
+
+test('the list view windows as well, and its rows stay rows', async () => {
+  const panel = await withSeeded(540)
   panel.click(panel.byLabel('action.viewGrid'))
   await panel.settle()
   assert.ok(panel.byClass('hub-row'), 'the list view must be on screen')
 
   const drawn = drawnItems(panel)
-  assert.ok(drawn.length < 240, `the list view draws a window too (got ${drawn.length})`)
+  assert.ok(drawn.length < 540, `the list view draws a window too (got ${drawn.length})`)
 
-  await scrollBody(panel, 16000)
-  assert.equal(drawnNames(panel).at(-1), '任务 239', 'and reaches its last row')
+  await scrollBody(panel, 40000)
+  assert.equal(drawnNames(panel).at(-1), '任务 539', 'and reaches its last row')
 })
 
-test('a list at the threshold is drawn whole', async () => {
+test('a grid list at its threshold is drawn whole', async () => {
   // Below the threshold measuring costs more than drawing, so nothing is
   // windowed and the panel keeps the shape it always had.
   const panel = await withSeeded(200)
   assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
   assert.equal(drawnItems(panel).length, 200, 'every row is drawn')
   assert.equal(panel.allByClass('hub-spacer').length, 0, 'and no empty height stands in for any of them')
+})
+
+test('the list view draws its larger threshold whole', async () => {
+  // A list row is much cheaper than a card, so the list view keeps the whole
+  // list in the low hundreds: scrolling then cannot re-slice rows already in
+  // memory, which is the difference the user sees as a refresh.
+  const panel = await withSeeded(300)
+  panel.click(panel.byLabel('action.viewGrid'))
+  await panel.settle()
+
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+  assert.equal(drawnItems(panel).length, 300, 'every row is drawn')
+  assert.equal(panel.allByClass('hub-spacer').length, 0, 'and no empty height stands in for any of them')
+  assert.equal(panel.byClass('hub-regions').props['data-windowed'], 'false', 'the list is not windowed')
 })
 
 test('a windowed region still folds, and folds to its count', async () => {
@@ -2211,6 +2397,34 @@ test('a windowed region still folds, and folds to its count', async () => {
 })
 
 /* --- a status change stays local ------------------------------------------- */
+
+test('a short open region does not repeat its rows as a ghost spacer', async () => {
+  // The window walk places each region against the bottom of the last block it
+  // drew. It used to reset that bottom to the region's header end after the
+  // rows, so the next region's padding repeated every drawn row as empty
+  // height — a large blank gap under a short open region followed by a big
+  // folded one, which is exactly the live list (17 pending, 3 in progress, 171
+  // done). The walk is shared by both views; the default grid is used here
+  // because it windows at this size and the row counts stay cheap.
+  const panel = await mountPanel(store => {
+    for (let index = 0; index < 17; index += 1) store.create({ kind: 'todo', title: `待办 ${index}`, description: '正文', status: 'pending' })
+    for (let index = 0; index < 3; index += 1) store.create({ kind: 'todo', title: `进行 ${index}`, description: '正文', status: 'doing' })
+    for (let index = 0; index < 171; index += 1) store.create({ kind: 'todo', title: `完成 ${index}`, description: '正文', status: 'done' })
+    for (let index = 0; index < 5; index += 1) store.create({ kind: 'todo', title: `搁置 ${index}`, description: '正文', status: 'onhold' })
+    for (let index = 0; index < 7; index += 1) store.create({ kind: 'todo', title: `取消 ${index}`, description: '正文', status: 'cancelled' })
+  })
+  panel.expand()
+  await panel.settle()
+  panel.click(regionHead(panel, 'status.doing'))
+  await panel.settle()
+
+  const heads = panel.allByClass('hub-region-head').map(node => textOf(node)).join('|')
+  assert.match(heads, /status\.done/, 'the folded region after the open one is still drawn')
+  assert.equal(panel.allByClass('hub-spacer').length, 0,
+    'all content fits the window, so no empty height may stand in for it')
+  assert.equal(drawnItems(panel).length, 3, 'the open region draws exactly its own rows')
+  assert.equal(panel.error, undefined, `a render threw: ${panel.error?.message}`)
+})
 
 test('a status change merges the one row instead of re-reading the list', async () => {
   // The defect this section guards: the status write used to be followed by a
@@ -2797,7 +3011,7 @@ test('a JSON export of everything round-trips through the store own shape', asyn
     const [text] = await downloads.texts()
     const document = JSON.parse(text)
     const original = stored()[0]
-    for (const key of ['id', 'kind', 'title', 'description', 'category', 'priority', 'status', 'completedAt', 'note', 'createdAt', 'updatedAt']) {
+    for (const key of ['id', 'kind', 'title', 'description', 'category', 'priority', 'importance', 'status', 'completedAt', 'note', 'createdAt', 'updatedAt']) {
       assert.deepEqual(document.items[0][key], original[key], `${key} must survive the round trip`)
     }
     assert.deepEqual(document.items[0].attachments, [], 'and the attachments with it')
@@ -2844,7 +3058,7 @@ test('importing updates a known id and creates a new one', async () => {
     version: 1,
     statuses: [],
     items: [
-      { ...original, title: '改过的标题', description: '改过的正文' },
+      { ...original, title: '改过的标题', description: '改过的正文', importance: 'critical', priority: 'urgent' },
       { id: 'brand-new', kind: 'todo', title: '导入的新条目', description: '新正文', status: 'pending' },
     ],
   }))
@@ -2855,6 +3069,8 @@ test('importing updates a known id and creates a new one', async () => {
   assert.equal(stored().length, 2, 'the new entry is created rather than merged into the old one')
   assert.equal(stored()[0].title, '改过的标题', 'the known id is updated in place')
   assert.equal(stored()[0].id, original.id, 'and keeps its id')
+  assert.equal(stored()[0].importance, 'critical', 'the importance half imports too')
+  assert.equal(stored()[0].priority, 'urgent', 'and the urgency half')
   assert.equal(stored()[1].title, '导入的新条目')
   assert.equal(stored()[1].id, 'brand-new', 'the file id is kept, so a second import updates it')
 

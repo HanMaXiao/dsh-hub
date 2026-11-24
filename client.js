@@ -104,14 +104,16 @@ window.__ModuleLoader__.load({
       'sort.category': '类型',
       'sort.size': '大小',
       'sort.createdAt': '创建日期',
-      'sort.priority': '标记',
+      'sort.priority': '紧急程度',
+      'sort.importance': '重要程度',
       'sort.direction': '方向',
       'sort.asc': '递增',
       'sort.desc': '递减',
       'group.by': '分组依据',
       'group.none': '无',
       'group.category': '类别',
-      'group.priority': '优先级',
+      'group.priority': '紧急程度',
+      'group.importance': '重要程度',
       'group.withImages': '含图片',
       'group.textOnly': '纯文字',
       'group.uncategorized': '未分类',
@@ -125,7 +127,9 @@ window.__ModuleLoader__.load({
       'field.text': '内容',
       'field.title': '标题',
       'field.category': '类别',
-      'field.priority': '标记',
+      'field.urgency': '紧急程度',
+      'field.importance': '重要程度',
+      'field.priorityMatrix': '优先级',
       'field.note': '备注',
       'field.files': '附件',
       'field.images': '图片',
@@ -154,6 +158,22 @@ window.__ModuleLoader__.load({
       'priority.normal': '中',
       'priority.high': '高',
       'priority.urgent': '紧急',
+      'importance.low': '低',
+      'importance.normal': '中',
+      'importance.high': '高',
+      'importance.critical': '关键',
+      'matrix.low': '低',
+      'matrix.high': '高',
+      'quadrant.plan.title': '重要但不紧急',
+      'quadrant.plan.hint': '计划安排',
+      'quadrant.do.title': '重要且紧急',
+      'quadrant.do.hint': '立即执行',
+      'quadrant.delegate.title': '不重要但紧急',
+      'quadrant.delegate.hint': '委托他人',
+      'quadrant.drop.title': '不重要且不紧急',
+      'quadrant.drop.hint': '删除或推迟',
+      'chip.urgency': '紧急',
+      'chip.importance': '重要',
       'meta.created': '创建',
       'meta.updated': '修改',
       'meta.size': '大小',
@@ -244,14 +264,16 @@ window.__ModuleLoader__.load({
       'sort.category': 'Type',
       'sort.size': 'Size',
       'sort.createdAt': 'Created',
-      'sort.priority': 'Flag',
+      'sort.priority': 'Urgency',
+      'sort.importance': 'Importance',
       'sort.direction': 'Direction',
       'sort.asc': 'Ascending',
       'sort.desc': 'Descending',
       'group.by': 'Group by',
       'group.none': 'None',
       'group.category': 'Category',
-      'group.priority': 'Priority',
+      'group.priority': 'Urgency',
+      'group.importance': 'Importance',
       'group.withImages': 'With images',
       'group.textOnly': 'Text only',
       'group.uncategorized': 'Uncategorized',
@@ -265,7 +287,9 @@ window.__ModuleLoader__.load({
       'field.text': 'Content',
       'field.title': 'Title',
       'field.category': 'Category',
-      'field.priority': 'Flag',
+      'field.urgency': 'Urgency',
+      'field.importance': 'Importance',
+      'field.priorityMatrix': 'Priority',
       'field.note': 'Note',
       'field.files': 'Attachments',
       'field.images': 'Images',
@@ -294,6 +318,22 @@ window.__ModuleLoader__.load({
       'priority.normal': 'Normal',
       'priority.high': 'High',
       'priority.urgent': 'Urgent',
+      'importance.low': 'Low',
+      'importance.normal': 'Normal',
+      'importance.high': 'High',
+      'importance.critical': 'Critical',
+      'matrix.low': 'Low',
+      'matrix.high': 'High',
+      'quadrant.plan.title': 'Important, but not urgent',
+      'quadrant.plan.hint': 'Plan it',
+      'quadrant.do.title': 'Important and urgent',
+      'quadrant.do.hint': 'Do it now',
+      'quadrant.delegate.title': 'Urgent, but not important',
+      'quadrant.delegate.hint': 'Delegate it',
+      'quadrant.drop.title': 'Neither important nor urgent',
+      'quadrant.drop.hint': 'Drop or postpone',
+      'chip.urgency': 'Urgency',
+      'chip.importance': 'Importance',
       'meta.created': 'Created',
       'meta.updated': 'Modified',
       'meta.size': 'Size',
@@ -1359,7 +1399,7 @@ window.__ModuleLoader__.load({
 .hub-chip[data-tone="low"] { color: var(--hub-ink-3); }
 .hub-chip[data-tone="normal"] { color: var(--hub-ink-2); }
 .hub-chip[data-tone="high"] { background: var(--dsw-alias-interactive-bg-hover-accent); color: var(--dsw-alias-brand-primary); }
-.hub-chip[data-tone="urgent"] { background: var(--dsw-alias-interactive-bg-hover-danger); color: var(--dsw-alias-state-error-primary); }
+.hub-chip[data-tone="urgent"], .hub-chip[data-tone="critical"] { background: var(--dsw-alias-interactive-bg-hover-danger); color: var(--dsw-alias-state-error-primary); }
 /* The status tag carries its own colour in its dot, so it needs no tone rule of
    its own — the dot is painted from the same two-token mix as the badge. */
 
@@ -1534,6 +1574,104 @@ window.__ModuleLoader__.load({
 .hub-choice[aria-checked="true"] > span:first-child { color: var(--hub-accent); }
 .hub-choice-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* --------------------------------------------------------------------------
+   The priority matrix (DESIGN.md §8.6).
+
+   The old control was a four-choice radio row, which could only carry one
+   dimension. The matrix is the replacement: four quadrant buttons, each one a
+   radio, with a point's position inside a quadrant choosing the strength of
+   both dimensions. The four washes are meaningful colour like the status badge
+   is, so they are mixed from theme tokens and never written as literals.
+   -------------------------------------------------------------------------- */
+.hub-matrix {
+  display: grid;
+  grid-template-columns: 13px minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) 14px;
+  gap: 3px 6px;
+  margin-top: 1px;
+}
+.hub-matrix-yaxis {
+  grid-column: 1; grid-row: 1;
+  display: flex; flex-direction: column; align-items: center; justify-content: space-between;
+  color: var(--hub-ink-3); font-size: 9px; line-height: 1;
+}
+.hub-matrix-xaxis {
+  grid-column: 2; grid-row: 2;
+  display: flex; align-items: center; justify-content: space-between;
+  color: var(--hub-ink-3); font-size: 9px; line-height: 1;
+}
+.hub-matrix-axis-name { letter-spacing: .08em; }
+.hub-matrix-yaxis .hub-matrix-axis-name { writing-mode: vertical-rl; transform: rotate(180deg); }
+.hub-matrix-xaxis .hub-matrix-axis-name { margin: 0 4px; }
+.hub-matrix-plot {
+  position: relative; grid-column: 2; grid-row: 1;
+  display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
+  min-height: 132px; gap: 1px;
+  border: 1px solid var(--hub-line-strong); border-radius: 9px;
+  background: var(--hub-line);
+  overflow: hidden;
+}
+.hub-quadrant {
+  position: relative;
+  display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start;
+  gap: 1px; min-width: 0; padding: 6px 8px;
+  border: none;
+  background: var(--hub-quadrant-fill, var(--dsw-alias-bg-layer-1));
+  color: var(--hub-ink); text-align: left; font: inherit; cursor: pointer;
+  transition: background var(--hub-fast) ease, box-shadow var(--hub-fast) ease;
+}
+/* Each label sits in its quadrant's outer corner, so the four names never
+   share the centre with the marker: the middle of the plot is where a value
+   lands, and the corners are where the doctrine is written. */
+.hub-quadrant[data-quadrant="do"],
+.hub-quadrant[data-quadrant="delegate"] { align-items: flex-end; text-align: right; }
+.hub-quadrant[data-quadrant="drop"],
+.hub-quadrant[data-quadrant="delegate"] { justify-content: flex-end; }
+.hub-quadrant[data-quadrant="plan"] {
+  --hub-quadrant-fill: color-mix(in srgb, var(--dsw-alias-state-success-primary) 8%, var(--dsw-alias-bg-layer-1));
+}
+.hub-quadrant[data-quadrant="do"] {
+  --hub-quadrant-fill: color-mix(in srgb, var(--dsw-alias-state-error-primary) 8%, var(--dsw-alias-bg-layer-1));
+}
+.hub-quadrant[data-quadrant="drop"] {
+  --hub-quadrant-fill: color-mix(in srgb, var(--dsw-alias-state-idle-primary) 8%, var(--dsw-alias-bg-layer-1));
+}
+.hub-quadrant[data-quadrant="delegate"] {
+  --hub-quadrant-fill: color-mix(in srgb, var(--dsw-alias-state-warn-primary) 8%, var(--dsw-alias-bg-layer-1));
+}
+.hub-quadrant:hover { box-shadow: inset 0 0 0 1px var(--hub-line-strong); }
+.hub-quadrant[aria-checked="true"] { box-shadow: inset 0 0 0 1px var(--hub-accent); }
+.hub-quadrant:active { box-shadow: inset 0 0 0 2px var(--hub-accent); }
+.hub-quadrant:focus-visible { outline-offset: -2px; }
+/* The cross is the same half-axis the click maths uses: it shows where one
+   strength becomes the next without adding a second control. */
+.hub-quadrant::before, .hub-quadrant::after {
+  content: ''; position: absolute; z-index: 0; pointer-events: none;
+  background: color-mix(in srgb, var(--hub-line-strong) 55%, transparent);
+}
+.hub-quadrant::before { left: 50%; top: 0; bottom: 0; width: 1px; }
+.hub-quadrant::after { top: 50%; left: 0; right: 0; height: 1px; }
+.hub-quadrant-title, .hub-quadrant-hint {
+  position: relative; z-index: 1; max-width: 100%;
+  overflow: hidden; line-height: 1.25;
+}
+.hub-quadrant-title { font-size: 10.5px; font-weight: 500; }
+.hub-quadrant-hint { color: var(--hub-ink-3); font-size: 9.5px; }
+.hub-matrix-marker {
+  position: absolute; z-index: 2; width: 11px; height: 11px;
+  /* A ring rather than a filled dot: a value can land on a quadrant label, and
+     a hollow mark leaves the word underneath it legible. */
+  border: 2px solid var(--hub-accent); border-radius: 50%;
+  background: transparent;
+  box-shadow:
+    0 0 0 1px var(--hub-raised),
+    0 2px 5px color-mix(in srgb, var(--dsw-alias-bg-mask-3) 70%, transparent);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  transition: left var(--hub-fast) ease, top var(--hub-fast) ease;
+}
+.hub-matrix-current { color: var(--hub-ink-2); font-size: 10.5px; line-height: 1.4; }
+
 .hub-file-list { display: flex; flex-wrap: wrap; gap: 5px; }
 .hub-file {
   display: flex; align-items: center; gap: 5px; padding: 2px 3px 2px 8px;
@@ -1576,6 +1714,11 @@ window.__ModuleLoader__.load({
   to { opacity: 1; transform: none; }
 }
 .hub-card, .hub-row { animation: hubRise var(--hub-mid) var(--hub-ease) both; }
+/* In a window, a row mounting is the scroll moving the slice, not a new list
+   arriving. Replaying the rise makes the same data look re-fetched, so the
+   windowed path keeps still and only the whole-list path animates. */
+.hub-regions[data-windowed="true"] .hub-card,
+.hub-regions[data-windowed="true"] .hub-row { animation: none; }
 
 /* Motion is decoration here; without it every state is already legible. */
 @media (prefers-reduced-motion: reduce) {
@@ -1784,7 +1927,7 @@ window.__ModuleLoader__.load({
      * older build that has never heard of the field.
      */
     const REQUIRED_KEYS = {
-      todo: ['id', 'kind', 'title', 'description', 'category', 'priority', 'status', 'completedAt', 'attachments', 'note', 'createdAt', 'updatedAt'],
+      todo: ['id', 'kind', 'title', 'description', 'category', 'priority', 'importance', 'status', 'completedAt', 'attachments', 'note', 'createdAt', 'updatedAt'],
       note: ['id', 'kind', 'title', 'text', 'images', 'createdAt', 'updatedAt'],
       prompt: ['id', 'kind', 'title', 'text', 'images', 'createdAt', 'updatedAt'],
     }
@@ -2127,28 +2270,59 @@ window.__ModuleLoader__.load({
      * ordering. The Host never re-implements it (DESIGN.md, ownership table).
      * ==================================================================== */
 
-    /** Priority rank. Ascending is low to high (§6). */
-    const PRIORITY_RANK = { low: 0, normal: 1, high: 2, urgent: 3 }
+    /** Urgency values, low to high: the matrix's horizontal axis. */
+    const URGENCY_LEVELS = ['low', 'normal', 'high', 'urgent']
+
+    /** Priority rank, derived from its own level list so the two cannot drift. */
+    const PRIORITY_RANK = Object.fromEntries(URGENCY_LEVELS.map((id, index) => [id, index]))
+
+    /** Importance values, low to high: the matrix's vertical axis. */
+    const IMPORTANCE_LEVELS = ['low', 'normal', 'high', 'critical']
+
+    /** Importance rank, on its own vocabulary and derived from its level list. */
+    const IMPORTANCE_RANK = Object.fromEntries(IMPORTANCE_LEVELS.map((id, index) => [id, index]))
 
     /** The order priority groups appear in, independent of sort direction. */
     const PRIORITY_ORDER = ['urgent', 'high', 'normal', 'low']
 
+    /** The order importance groups appear in, independent of sort direction. */
+    const IMPORTANCE_ORDER = ['critical', 'high', 'normal', 'low']
+
     /**
-     * The priority field's choices, least urgent first — the order the native
-     * select used to list them in, so the row reads the same way the dropdown
-     * did. Grouping above keeps the most urgent first, which is the opposite
-     * order on purpose (§6).
+     * The four quadrants, in reading order.
+     *
+     * `important` and `urgent` describe the *half* of each axis the quadrant
+     * covers. A value at `high` or above is on the high half; `low` and
+     * `normal` are on the low half. That split is what makes a click anywhere
+     * in a quadrant leave the task in it (DESIGN §8.6).
      */
-    const PRIORITY_CHOICES = PRIORITY_ORDER.slice().reverse()
-      .map(id => ({ id, labelKey: `priority.${id}` }))
+    const QUADRANTS = [
+      { id: 'plan', important: true, urgent: false },
+      { id: 'do', important: true, urgent: true },
+      { id: 'drop', important: false, urgent: false },
+      { id: 'delegate', important: false, urgent: true },
+    ]
+
+    /**
+     * The pair a quadrant falls back to when a click carries no position —
+     * a keyboard activation, or a harness with no layout. It is the quadrant's
+     * inner corner, so the marker lands beside the centre the pointer would.
+     */
+    const QUADRANT_DEFAULT_PAIR = {
+      plan: { importance: 'high', priority: 'normal' },
+      do: { importance: 'high', priority: 'high' },
+      delegate: { importance: 'normal', priority: 'high' },
+      drop: { importance: 'normal', priority: 'normal' },
+    }
 
     /**
      * Sort fields, per kind (§6).
      *
      * Obsidian's `作者` and `标题` are absent on purpose and are NOT rendered as
      * empty entries: no model field backs them and `标题` duplicates `名称`. A
-     * TODO carries six fields — `类型` maps to `category` and `标记` to
-     * `priority` — while a Note and a Prompt carry exactly four.
+     * TODO carries seven fields — `类型` maps to `category`, and `紧急程度` /
+     * `重要程度` map to the two Eisenhower dimensions — while a Note and a
+     * Prompt carry exactly four.
      */
     const SORT_FIELDS = {
       todo: [
@@ -2158,6 +2332,7 @@ window.__ModuleLoader__.load({
         { id: 'size', labelKey: 'sort.size' },
         { id: 'createdAt', labelKey: 'sort.createdAt' },
         { id: 'priority', labelKey: 'sort.priority' },
+        { id: 'importance', labelKey: 'sort.importance' },
       ],
       note: [
         { id: 'name', labelKey: 'sort.name' },
@@ -2193,6 +2368,7 @@ window.__ModuleLoader__.load({
         { id: 'none', labelKey: 'group.none' },
         { id: 'category', labelKey: 'group.category' },
         { id: 'priority', labelKey: 'group.priority' },
+        { id: 'importance', labelKey: 'group.importance' },
       ],
       note: [
         { id: 'none', labelKey: 'group.none' },
@@ -2384,6 +2560,12 @@ window.__ModuleLoader__.load({
         priority: kind === 'todo' && Object.prototype.hasOwnProperty.call(PRIORITY_RANK, raw.priority)
           ? raw.priority
           : 'normal',
+        // An item written before the second dimension existed reads as the
+        // default rather than as a missing field: the quadrant panel still has
+        // a point to draw, and the Host is what says which value is stored.
+        importance: kind === 'todo' && Object.prototype.hasOwnProperty.call(IMPORTANCE_RANK, raw.importance)
+          ? raw.importance
+          : 'normal',
         status,
         statusDef: definition,
         // "Finished" is a property of the status, not of the item: one flag,
@@ -2408,7 +2590,8 @@ window.__ModuleLoader__.load({
      * The comparator for one field and direction (§6).
      *
      * Ascending means name A to Z, date old to new, size small to large and
-     * priority low to high; descending inverts the primary key only.
+     * each priority dimension low to high; descending inverts the primary key
+     * only.
      *
      * `completedAt` is the one field id that is not in `SORT_FIELDS`: the menu
      * does not offer it, because a terminal status's region orders itself by it
@@ -2433,6 +2616,7 @@ window.__ModuleLoader__.load({
         case 'completedAt': difference = a.completedAt - b.completedAt; break
         case 'category': difference = collator.compare(a.category, b.category); break
         case 'priority': difference = PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority]; break
+        case 'importance': difference = IMPORTANCE_RANK[a.importance] - IMPORTANCE_RANK[b.importance]; break
         default: difference = 0
       }
       if (difference !== 0) return sign * difference
@@ -2475,8 +2659,9 @@ window.__ModuleLoader__.load({
      * Split one kind's items into labelled groups.
      *
      * Group ORDER is the natural order of the grouping key (priority most to
-     * least urgent, unfinished before done) and never follows the sort
-     * direction — a descending sort should not walk the sections backwards.
+     * least urgent, importance most to least important, unfinished before
+     * done) and never follows the sort direction — a descending sort should
+     * not walk the sections backwards.
      */
     function groupItems(items, kind, groupId) {
       if (groupId === 'none') return [{ id: 'none', labelKey: null, items }]
@@ -2497,6 +2682,15 @@ window.__ModuleLoader__.load({
               id: `priority:${priority}`,
               labelKey: `priority.${priority}`,
               items: items.filter(item => item.priority === priority),
+            }))
+            .filter(group => group.items.length > 0)
+        }
+        if (groupId === 'importance') {
+          return IMPORTANCE_ORDER
+            .map(importance => ({
+              id: `importance:${importance}`,
+              labelKey: `importance.${importance}`,
+              items: items.filter(item => item.importance === importance),
             }))
             .filter(group => group.items.length > 0)
         }
@@ -2622,13 +2816,17 @@ window.__ModuleLoader__.load({
      * motion and the fold behaviour are the windowed path's too. */
 
     /**
-     * Items below which the whole list is drawn.
+     * Items above which a view is drawn as a window.
      *
      * Windowing costs a layout walk, an estimated row pitch and a scroll
-     * listener, and it pays for itself only once the DOM is the bottleneck:
-     * below this the whole list is cheaper to draw than to measure.
+     * listener, and it pays for itself only once the DOM is the bottleneck.
+     * The list threshold is higher than the grid's because a list row is one
+     * line of text and two chips, while a card carries a body and a foot: at
+     * the same count the list is materially cheaper. A list in the low
+     * hundreds therefore draws whole, so scrolling it never re-slices rows
+     * that are already in memory.
      */
-    const WINDOW_THRESHOLD = 200
+    const WINDOW_THRESHOLD = { grid: 200, list: 500 }
 
     /** Rows drawn above and below the window, so a fast scroll is never blank. */
     const WINDOW_OVERSCAN = 8
@@ -2658,6 +2856,35 @@ window.__ModuleLoader__.load({
     const FALLBACK_VIEWPORT = 470
 
     /**
+     * The full height the window would have if every row were drawn.
+     *
+     * The window is placed by this total as well as by the scroll offset: a
+     * remembered offset can sit past the end after a fold, a filter or a sort,
+     * and without the clamp the walk would find nothing to draw and the body
+     * would go blank until the next scroll event.
+     *
+     * @param regions The regions `runRegions` produced.
+     * @param openRegions The persisted fold map.
+     * @param row The row pitch to charge.
+     * @returns The unscrolled document height.
+     */
+    function listHeight(regions, openRegions, row) {
+      let total = 0
+      for (const region of regions) {
+        const labelled = region.status !== null && region.status !== undefined
+        if (labelled) total += REGION_HEAD_HEIGHT
+        const open = !labelled || openRegions[region.id] === true
+        if (!open) continue
+        for (const group of region.groups) {
+          const headed = !(group.labelKey === null && group.label === undefined)
+          if (headed) total += GROUP_HEAD_HEIGHT
+          total += group.items.length * row
+        }
+      }
+      return total
+    }
+
+    /**
      * The slice of the panel the window covers.
      *
      * The walk charges every header and row its estimated pitch, keeps the
@@ -2667,6 +2894,11 @@ window.__ModuleLoader__.load({
      * is. A block outside the window is skipped whole rather than measured,
      * which is what keeps a thousand-item list from costing a thousand-item
      * walk.
+     *
+     * The offset is clamped to the document first. A fold, a filter or a sort
+     * can shrink the list under a scroll position that was valid a moment ago;
+     * without the clamp every block would be above the viewport, nothing would
+     * be drawn, and the panel would read as a failed refresh.
      *
      * @param regions The regions `runRegions` produced.
      * @param view The active view, which picks the row pitch.
@@ -2678,8 +2910,10 @@ window.__ModuleLoader__.load({
      */
     function windowLayout(regions, view, openRegions, scrollTop, viewport, pitch) {
       const row = pitch ?? ROW_PITCH[view] ?? ROW_PITCH.grid
-      const reach = scrollTop - WINDOW_OVERSCAN * row
-      const limit = scrollTop + viewport + WINDOW_OVERSCAN * row
+      const total = listHeight(regions, openRegions, row)
+      const top = Math.min(Math.max(0, scrollTop), Math.max(0, total - viewport))
+      const reach = top - WINDOW_OVERSCAN * row
+      const limit = top + viewport + WINDOW_OVERSCAN * row
       const drawn = []
       let offset = 0
       // The bottom of the last block actually drawn, so the gap recorded in
@@ -2712,18 +2946,15 @@ window.__ModuleLoader__.load({
               group.items.length,
               Math.max(start + 1, Math.ceil((limit - rowsTop) / row)),
             )
-            const drawHead = headed && groupHeadEnd > reach
-            const headPad = Math.max(0, (drawHead ? groupTop : groupHeadEnd) - placed)
-            placed = groupHeadEnd
             groups.push({
               group,
-              drawHead,
-              headPad,
-              rowsPad: Math.max(0, rowsTop - placed),
+              drawHead: headed && groupHeadEnd > reach,
+              groupTop,
+              groupHeadEnd,
+              rowsTop,
               start,
               end,
             })
-            placed = rowsTop + (end - start) * row
           }
         }
         if (regionTop > limit || offset < reach) continue
@@ -2732,12 +2963,29 @@ window.__ModuleLoader__.load({
         // outside the window has nothing to draw. Skipping it leaves its whole
         // height to the gap in front of the next block that is drawn.
         if (!drawHead && groups.length === 0) continue
+        // The header slot is placed first: `headPad` is the gap between the last
+        // drawn block and this region's top (or its body, when the header
+        // scrolled past). Only then is the body's own start known, because the
+        // groups inside it begin after the header.
         const headPad = Math.max(0, (drawHead ? regionTop : regionHeadEnd) - placed)
         placed = regionHeadEnd
+        // Each group is placed against the body start, so its padding accounts
+        // for the region header above it. `placed` must end at the bottom of the
+        // rows just drawn: resetting it to the header end here would repeat
+        // those rows as empty height before the next region — a ghost gap.
+        for (const slice of groups) {
+          slice.headPad = Math.max(0, (slice.drawHead ? slice.groupTop : slice.groupHeadEnd) - placed)
+          placed = slice.groupHeadEnd
+          // The rows before `start` are skipped, not absent: their height must
+          // be in the spacer or the drawn rows would sit at the top of the
+          // group instead of at the scroll offset the window was taken from.
+          slice.rowsPad = Math.max(0, slice.rowsTop + slice.start * row - placed)
+          placed = slice.rowsTop + slice.end * row
+        }
         drawn.push({ region, labelled, open, drawHead, headPad, groups })
       }
       if (drawn.length === 0) return null
-      return { height: offset, tail: Math.max(0, offset - placed), regions: drawn }
+      return { height: total, tail: Math.max(0, total - placed), regions: drawn }
     }
 
     /**
@@ -2995,6 +3243,7 @@ window.__ModuleLoader__.load({
         stored.description = item.content
         stored.category = item.category
         stored.priority = item.priority
+        stored.importance = item.importance
         stored.status = item.status
         const completed = isoFromEpoch(item.completedAt)
         // `''` is what the document carries for an unfinished task, and an empty
@@ -3034,7 +3283,8 @@ window.__ModuleLoader__.load({
         lines.push(`### ${item.name === '' ? translate('state.untitled') : item.name}`)
         const meta = []
         if (kind === 'todo') {
-          meta.push(`${translate('field.priority')} ${translate(`priority.${item.priority}`)}`)
+          meta.push(`${translate('field.importance')} ${translate(`importance.${item.importance}`)}`)
+          meta.push(`${translate('field.urgency')} ${translate(`priority.${item.priority}`)}`)
           if (item.category !== '') meta.push(`${translate('field.category')} ${item.category}`)
           if (item.statusDef !== null) meta.push(`${translate('field.status')} ${statusText(item.statusDef)}`)
         }
@@ -3190,6 +3440,7 @@ window.__ModuleLoader__.load({
       if (typeof raw[content] === 'string') payload[content] = raw[content]
       if (typeof raw.category === 'string') payload.category = raw.category
       if (typeof raw.priority === 'string') payload.priority = raw.priority
+      if (typeof raw.importance === 'string') payload.importance = raw.importance
       const status = importedStatus(raw, statusMap)
       if (status !== undefined) payload.status = status
       if (typeof raw.note === 'string') payload.note = raw.note
@@ -3222,6 +3473,7 @@ window.__ModuleLoader__.load({
       if (typeof raw[content] === 'string') payload[content] = raw[content]
       if (typeof raw.category === 'string') payload.category = raw.category
       if (typeof raw.priority === 'string') payload.priority = raw.priority
+      if (typeof raw.importance === 'string') payload.importance = raw.importance
       const status = importedStatus(raw, statusMap)
       if (status !== undefined) payload.status = status
       if (typeof raw.note === 'string') payload.note = raw.note
@@ -3325,8 +3577,18 @@ window.__ModuleLoader__.load({
         chips.push(h('span', { key: 'c', className: 'hub-chip' }, item.category))
       }
       if (item.kind === 'todo') {
-        chips.push(h('span', { key: 'p', className: 'hub-chip', 'data-tone': item.priority },
-          translate(`priority.${item.priority}`)))
+        chips.push(h('span', {
+          key: 'i',
+          className: 'hub-chip',
+          'data-tone': item.importance,
+          title: translate('field.importance'),
+        }, `${translate('chip.importance')} ${translate(`importance.${item.importance}`)}`))
+        chips.push(h('span', {
+          key: 'p',
+          className: 'hub-chip',
+          'data-tone': item.priority,
+          title: translate('field.urgency'),
+        }, `${translate('chip.urgency')} ${translate(`priority.${item.priority}`)}`))
       }
       if (item.kind === 'todo' && props.withState !== false && item.statusDef !== null) {
         chips.push(h('span', { key: 'd', className: 'hub-chip' },
@@ -4015,8 +4277,8 @@ window.__ModuleLoader__.load({
      * It brings its own label rather than going through `Field`, because
      * `Field` renders a `<label>` and a label forwards a click to the first
      * labelable descendant — which here is always the first option, so clicking
-     * the word "Priority" would silently select it. The group is named with the
-     * same string the label shows, so nothing is announced twice.
+     * the row's own label would silently select that option. The group is named
+     * with the same string the label shows, so nothing is announced twice.
      *
      * @param {{labelKey: string, value: string, choices: Array<{id: string, labelKey: string}>, onSelect: (id: string) => void}} props
      * @returns the labelled radio row.
@@ -4045,6 +4307,145 @@ window.__ModuleLoader__.load({
             h('span', { key: 'l', className: 'hub-choice-label' }, translate(choice.labelKey)),
           ])
         })),
+      ])
+    }
+
+    /** Which quadrant a value pair sits in, from the two independent ranks. */
+    function quadrantOf(importance, priority) {
+      const important = (IMPORTANCE_RANK[importance] ?? 1) >= 2
+      const urgent = (PRIORITY_RANK[priority] ?? 1) >= 2
+      if (important) return urgent ? 'do' : 'plan'
+      return urgent ? 'delegate' : 'drop'
+    }
+
+    /**
+     * The pair a point inside a quadrant stands for.
+     *
+     * A quadrant covers half of each axis, and each half holds two levels, so
+     * the point's position inside the quadrant decides the strength of both
+     * dimensions. That is the whole reason a click anywhere is enough: the
+     * quadrant picks the half, the position picks the level, and both fields
+     * are written together (DESIGN §8.6).
+     *
+     * @param {string} id Quadrant id.
+     * @param {number} x Position across the quadrant, 0 to 1.
+     * @param {number} y Position down the quadrant, 0 to 1.
+     * @returns `{ importance, priority }`.
+     */
+    function pairForQuadrant(id, x, y) {
+      const quadrant = QUADRANTS.find(candidate => candidate.id === id) ?? QUADRANTS[3]
+      const urgencyIndex = quadrant.urgent
+        ? (x < 0.5 ? 2 : 3)
+        : (x < 0.5 ? 0 : 1)
+      // The screen's y grows downward while importance grows upward, so the
+      // top half of the quadrant holds the high end of the scale.
+      const importanceIndex = quadrant.important
+        ? (y < 0.5 ? 3 : 2)
+        : (y < 0.5 ? 1 : 0)
+      return {
+        importance: IMPORTANCE_LEVELS[importanceIndex],
+        priority: URGENCY_LEVELS[urgencyIndex],
+      }
+    }
+
+    /** Where the current pair sits in the plot, as CSS percentages. */
+    function markerPosition(importance, priority) {
+      const importanceRank = IMPORTANCE_RANK[importance] ?? 1
+      const priorityRank = PRIORITY_RANK[priority] ?? 1
+      return {
+        left: `${(priorityRank + 0.5) * 25}%`,
+        top: `${(3 - importanceRank + 0.5) * 25}%`,
+      }
+    }
+
+    /**
+     * The Eisenhower matrix: one control over both priority dimensions.
+     *
+     * The old control was a four-choice radio row, so a task could only carry
+     * urgency. Two independent fields cannot be expressed by one row without
+     * asking the user to set each in turn, which is exactly the round trip the
+     * quadrant removes (DESIGN §8.6).
+     *
+     * The four quadrants are radio buttons: a click anywhere inside one lands
+     * on that button, and the point's position inside it picks the strength of
+     * both dimensions. A second click replaces the pair outright — the two
+     * fields are one mark, not two that can be half-updated.
+     *
+     * @param {{importance: string, priority: string, onPick: (importance: string, priority: string) => void}} props
+     * @returns the labelled matrix.
+     */
+    function PriorityMatrix(props) {
+      const importance = props.importance ?? 'normal'
+      const priority = props.priority ?? 'normal'
+      const selected = quadrantOf(importance, priority)
+      const marker = markerPosition(importance, priority)
+      const current = `${translate(`quadrant.${selected}.title`)} · ${translate('field.importance')} ${translate(`importance.${importance}`)} · ${translate('field.urgency')} ${translate(`priority.${priority}`)}`
+      /**
+       * Read a click's sub-quadrant.
+       *
+       * `currentTarget` is the quadrant button, so its own box is the local
+       * frame. A keyboard activation reports no click detail and no real
+       * point, so it falls back to the quadrant's inner pair rather than to the
+       * origin the browser invents for a synthetic click.
+       */
+      const pick = (id, event) => {
+        const rect = event?.currentTarget?.getBoundingClientRect?.()
+        const hasPoint = rect !== undefined && rect !== null
+          && rect.width > 0 && rect.height > 0
+          && event?.detail !== 0
+          && Number.isFinite(event?.clientX) && Number.isFinite(event?.clientY)
+        const pair = hasPoint
+          ? pairForQuadrant(
+            id,
+            Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width)),
+            Math.min(1, Math.max(0, (event.clientY - rect.top) / rect.height)),
+          )
+          : (QUADRANT_DEFAULT_PAIR[id] ?? QUADRANT_DEFAULT_PAIR.drop)
+        props.onPick(pair.importance, pair.priority)
+      }
+      return h('div', { className: 'hub-field' }, [
+        h('span', { key: 'l', className: 'hub-label' }, translate('field.priorityMatrix')),
+        h('div', { key: 'm', className: 'hub-matrix' }, [
+          h('div', { key: 'y', className: 'hub-matrix-yaxis', 'aria-hidden': 'true' }, [
+            h('span', { key: 'hi' }, translate('matrix.high')),
+            h('span', { key: 'n', className: 'hub-matrix-axis-name' }, translate('field.importance')),
+            h('span', { key: 'lo' }, translate('matrix.low')),
+          ]),
+          h('div', {
+            key: 'p',
+            className: 'hub-matrix-plot',
+            role: 'radiogroup',
+            'aria-label': translate('field.priorityMatrix'),
+          }, [
+            ...QUADRANTS.map(quadrant => h('button', {
+              key: quadrant.id,
+              type: 'button',
+              className: 'hub-quadrant',
+              'data-quadrant': quadrant.id,
+              role: 'radio',
+              'aria-checked': String(quadrant.id === selected),
+              'aria-label': `${translate(`quadrant.${quadrant.id}.title`)}: ${translate(`quadrant.${quadrant.id}.hint`)}`,
+              onClick: event => pick(quadrant.id, event),
+            }, [
+              h('span', { key: 't', className: 'hub-quadrant-title' }, translate(`quadrant.${quadrant.id}.title`)),
+              h('span', { key: 'd', className: 'hub-quadrant-hint' }, translate(`quadrant.${quadrant.id}.hint`)),
+            ])),
+            // The marker is decoration: the selected radio and the summary
+            // line below are what the assistive layer reads.
+            h('span', {
+              key: 'mark',
+              className: 'hub-matrix-marker',
+              'aria-hidden': 'true',
+              style: { left: marker.left, top: marker.top },
+            }),
+          ]),
+          h('div', { key: 'x', className: 'hub-matrix-xaxis', 'aria-hidden': 'true' }, [
+            h('span', { key: 'lo' }, translate('matrix.low')),
+            h('span', { key: 'n', className: 'hub-matrix-axis-name' }, translate('field.urgency')),
+            h('span', { key: 'hi' }, translate('matrix.high')),
+          ]),
+        ]),
+        h('span', { key: 'c', className: 'hub-matrix-current', 'aria-live': 'polite' }, current),
       ])
     }
 
@@ -4109,14 +4510,14 @@ window.__ModuleLoader__.load({
               onChange: event => patch({ category: event.target.value }),
             }))
           : null,
-        // Its own row rather than sharing one with the category: four choices
-        // need the width, and a category is free text that only needs half.
+        // The two priority dimensions are one control: a click in the matrix
+        // sets both, and a later click replaces both. They are never two rows
+        // the user has to visit in turn.
         isTodo
-          ? ChoiceRow({
-            labelKey: 'field.priority',
-            choices: PRIORITY_CHOICES,
-            value: draft.priority ?? 'normal',
-            onSelect: value => patch({ priority: value }),
+          ? PriorityMatrix({
+            importance: draft.importance ?? 'normal',
+            priority: draft.priority ?? 'normal',
+            onPick: (importance, priority) => patch({ importance, priority }),
           })
           : null,
         isTodo
@@ -4793,7 +5194,7 @@ window.__ModuleLoader__.load({
         dispatch({
           type: 'modal',
           modal: { kind: 'create' },
-          draft: { title: '', description: '', text: '', category: '', priority: 'normal', note: '', files: [] },
+          draft: { title: '', description: '', text: '', category: '', priority: 'normal', importance: 'normal', note: '', files: [] },
         })
       }, [])
 
@@ -4843,6 +5244,7 @@ window.__ModuleLoader__.load({
           text: item.content,
           category: item.category,
           priority: item.priority,
+          importance: item.importance,
           // The form carries no status control, but the draft has to carry the
           // status the item already has: an update that dropped it would clear
           // the status a badge set, every time somebody edited the title.
@@ -4974,6 +5376,7 @@ window.__ModuleLoader__.load({
               description: draft.description,
               category: draft.category,
               priority: draft.priority,
+              importance: draft.importance,
               note: draft.note,
               attachments: files,
               // The form carries no completion control — the item's own badge
@@ -5448,9 +5851,10 @@ window.__ModuleLoader__.load({
       // the track sizing, and this only decides how many skeleton tiles to draw.
       const columns = Math.max(1, Math.round((gridWidth + CARD_GAP) / (CARD_MIN + CARD_GAP)))
 
-      // A long list is drawn as a window. Below the threshold the whole list is
-      // drawn instead, which is the same components with no slice at all.
-      const windowed = visible > WINDOW_THRESHOLD
+      // A long list is drawn as a window. Below the view's own threshold the
+      // whole list is drawn instead, which is the same components with no slice
+      // at all.
+      const windowed = visible > (WINDOW_THRESHOLD[ui.view] ?? WINDOW_THRESHOLD.grid)
       const viewport = bodyHeight > 0 ? bodyHeight : FALLBACK_VIEWPORT
       const layout = useMemo(
         () => (windowed
@@ -5470,15 +5874,20 @@ window.__ModuleLoader__.load({
         if (body === null || body === undefined || typeof body.querySelector !== 'function') return
         const list = body.querySelector('.hub-grid, .hub-rows')
         if (list === null || typeof list.getBoundingClientRect !== 'function') return
-        const rows = list.children.length
-        if (rows === 0) return
+        const children = list.children.length
+        if (children === 0) return
+        // A grid's children are cards, not rows: divide by the column count it
+        // is actually laid out with, or the correction would shrink the pitch
+        // by that factor and place every later window too early.
+        const perRow = ui.view === 'grid' ? Math.max(1, columns) : 1
+        const rows = Math.ceil(children / perRow)
         const measured = list.getBoundingClientRect().height / rows
         if (!Number.isFinite(measured) || measured <= 0) return
         pitchFixed.current[ui.view] = true
         setPitch(current => (Math.abs(current[ui.view] - measured) < 4
           ? current
           : { ...current, [ui.view]: Math.round(measured) }))
-      }, [windowed, ui.view, layout, gridRef])
+      }, [windowed, ui.view, layout, gridRef, columns])
 
       // A local write is an in-place edit, so it owes the view its offset back.
       // Re-reading the list to apply it used to replace the rows with the
@@ -5669,7 +6078,13 @@ window.__ModuleLoader__.load({
                   'aria-label': translate('action.create'),
                   onClick: openCreate,
                 }, h(Icon, { name: 'plus', size: 24 }))))
-            : h('div', { className: 'hub-regions' }, [
+            : h('div', {
+              className: 'hub-regions',
+              // A windowed row is a slice of a list already in memory, not a
+              // fresh arrival. The arrival animation must not replay every time
+              // a scroll moves the window, or the data looks re-fetched.
+              'data-windowed': String(windowed),
+            }, [
               // One list of regions either way: a windowed one is drawn from its
               // slice, which also says whether a region's header is still on
               // screen, and an unwindowed one is the same code with no slice.

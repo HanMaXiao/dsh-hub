@@ -8,7 +8,7 @@
  */
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { applyPatch, ATTACHMENT_MIME_TYPES, formatBytes, HubValidationError, normalizeItem, PRIORITIES } from '../lib/model.js'
+import { applyPatch, ATTACHMENT_MIME_TYPES, formatBytes, HubValidationError, IMPORTANCES, normalizeItem, PRIORITIES } from '../lib/model.js'
 import { DEFAULT_STATUSES } from '../lib/status.js'
 
 const AT = new Date('2026-10-15T02:04:15.123Z')
@@ -36,13 +36,14 @@ test('a minimal TODO takes every §5 field and its documented defaults', () => {
   const item = normalizeItem(todo, {}, AT)
   assert.deepEqual(Object.keys(item).sort(), [
     'attachments', 'category', 'completedAt', 'createdAt', 'description', 'id',
-    'kind', 'note', 'priority', 'status', 'title', 'updatedAt',
+    'importance', 'kind', 'note', 'priority', 'status', 'title', 'updatedAt',
   ])
   assert.equal(item.kind, 'todo')
   assert.equal(item.title, '')
   assert.equal(item.description, 'ship the panel')
   assert.equal(item.category, '')
   assert.equal(item.priority, 'normal')
+  assert.equal(item.importance, 'normal', 'both priority dimensions start at the default')
   assert.equal(item.status, 'pending')
   assert.equal(item.completedAt, '', 'an open TODO has not been finished, so it carries no stamp')
   assert.equal(item.note, '')
@@ -159,10 +160,12 @@ test('a TODO is checked against the status list the store carries', () => {
   rejects(() => normalizeItem({ ...todo, status: 'blocked' }, {}, AT), 'status')
 })
 
-test('a NOTE carries text and images and no category or priority', () => {
+test('a NOTE carries text and images and neither priority dimension', () => {
   const item = normalizeItem({ kind: 'note', text: 'a thought' }, {}, AT)
   assert.deepEqual(Object.keys(item).sort(), ['createdAt', 'id', 'images', 'kind', 'text', 'title', 'updatedAt'])
   assert.equal(item.text, 'a thought')
+  assert.equal('priority' in item, false)
+  assert.equal('importance' in item, false)
   assert.deepEqual(item.images, [])
 })
 
@@ -220,6 +223,29 @@ test('every documented priority is accepted', () => {
   for (const priority of PRIORITIES) {
     assert.equal(normalizeItem({ ...todo, priority }, {}, AT).priority, priority)
   }
+})
+
+test('an unknown importance is rejected naming the field and the received value', () => {
+  const message = rejects(() => normalizeItem({ ...todo, importance: 'urgent!!' }, {}, AT), 'importance')
+  assert.equal(message, 'dsh-hub: importance must be one of low|normal|high|critical, received "urgent!!"')
+})
+
+test('every documented importance is accepted and stored independently of urgency', () => {
+  for (const importance of IMPORTANCES) {
+    const item = normalizeItem({ ...todo, priority: 'urgent', importance }, {}, AT)
+    assert.equal(item.importance, importance)
+    assert.equal(item.priority, 'urgent', 'the two dimensions never overwrite each other')
+  }
+})
+
+test('a patch can move either priority dimension without touching the other', () => {
+  const item = normalizeItem({ ...todo, priority: 'low', importance: 'low' }, {}, AT)
+  const urgent = applyPatch(item, { priority: 'urgent' }, {}, AT)
+  assert.equal(urgent.priority, 'urgent')
+  assert.equal(urgent.importance, 'low')
+  const important = applyPatch(urgent, { importance: 'critical' }, {}, AT)
+  assert.equal(important.importance, 'critical')
+  assert.equal(important.priority, 'urgent')
 })
 
 test('a TODO whose title names it needs no content at all', () => {
@@ -415,6 +441,7 @@ test('a patch may not change identity or provenance', () => {
 
 test('a patch is validated as strictly as a create', () => {
   rejects(() => applyPatch(stored, { priority: 'later' }, {}, AT), 'priority')
+  rejects(() => applyPatch(stored, { importance: 'later' }, {}, AT), 'importance')
   rejects(() => applyPatch(stored, { status: 'later' }, {}, AT), 'status')
 })
 
