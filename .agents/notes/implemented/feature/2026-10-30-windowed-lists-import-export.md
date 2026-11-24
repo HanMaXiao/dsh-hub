@@ -30,10 +30,17 @@ and what it leaves out is drawn as **empty height** — so the scroll range
 still describes the whole list and the scrollbar stays where the content is.
 The window is taken against the one scroll the body already is, and it is the
 same components with a slice: the skeletons, the motion and the fold behaviour
-are the windowed path's too. **At or below the threshold the exact previous
-path runs**, with no slice at all — a list at the threshold is drawn whole,
-so the two behaviours differ only where the old one was already too slow to
-use.
+are the windowed path's too. **Below the view's own threshold the exact previous
+path runs**, with no slice at all. The thresholds differ by view because a list
+row is one line of text and two chips while a card carries a body and a foot:
+the grid windows above **200**, the list above **500**, so a list in the low
+hundreds stays whole and scrolling it never re-slices rows already in memory.
+
+The **offset is clamped to the document** before the walk. A fold, a filter or
+a sort can shrink the list under a scroll position that was valid a moment ago;
+without the clamp every block would sit above the viewport, nothing would be
+drawn, and the panel would read as a failed refresh. The body itself is
+scrolled by the browser, so the clamp only decides which block is drawn.
 
 The **row pitch is an estimate, corrected once per view**. It starts at a
 fixed estimate per view, and the first window drawn measures the rows that
@@ -42,6 +49,19 @@ its own measurement would oscillate on a list whose rows are not all one
 height. The overscan is what absorbs the error until then. Region and group
 headers are charged fixed heights in the same walk, so a folded region keeps
 its header and nothing else exactly as the whole-list render does.
+
+Every spacer is measured from the bottom of the block actually drawn last.
+Resetting that bottom to a region header after its rows would repeat those
+rows as empty height before the next region — a ghost gap under a short open
+region followed by a large folded one. The rows before the window's first row
+are reserved by the group's own pad, so the drawn rows sit at the scroll
+offset the window was taken from rather than at the top of their group.
+
+**A windowed row does not replay the arrival animation.** The data is already
+in memory; the row mounting is the scroll moving the slice, not a new arrival.
+Replaying the rise there makes the same data look re-fetched, so the
+`.hub-regions[data-windowed]` flag turns the animation off on the windowed path
+and leaves it on for a list drawn whole.
 
 ### Import and export go through the Remote that is already there
 
@@ -192,13 +212,17 @@ search box are how the rest of the list is reached.
 
 ## Testing
 
-`node --test` runs 228 tests. About twenty are about this change, all of them
-driving the real bundle:
+`node --test` runs the full suite, and about twenty of its tests are about this
+change, all of them driving the real bundle:
 
 - a long list keeps its skeleton and then draws a window; the window follows
-  the scroll and the last row is still reachable; the list view windows as
-  well and its rows stay rows; a list at the threshold is drawn whole; a
-  windowed region still folds, and folds to its count;
+  the scroll and the last row is still reachable; scrolling a window never
+  calls `list` again; a scroll past the content clamps instead of blanking; a
+  scrolled window reserves the skipped rows above its first row; a short open
+  region does not repeat its rows as a ghost spacer; the list view draws its
+  larger threshold whole and still windows a longer list; a grid list at its
+  threshold is drawn whole; a windowed region still folds, and folds to its
+  count;
 - exporting the current tab writes a `store.json` of that tab; exporting
   everything writes every kind, and Markdown writes prose; a JSON export of
   everything round-trips through the store's own shape;

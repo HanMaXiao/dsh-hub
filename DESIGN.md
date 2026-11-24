@@ -139,8 +139,8 @@ available to a `dsh.client` bundle. The only bridge is a **Typert Remote**:
 ## 5. Data model
 
 ```
-TODO   { id, kind:'todo', title, description, category, priority, status,
-         completedAt, attachments:[{name,mime,size,dataUrl}], note,
+TODO   { id, kind:'todo', title, description, category, priority, importance,
+         status, completedAt, attachments:[{name,mime,size,dataUrl}], note,
          createdAt, updatedAt }
 NOTE   { id, kind:'note',  title, text, images:[{name,mime,size,dataUrl}],
          createdAt, updatedAt }
@@ -148,8 +148,24 @@ PROMPT { id, kind:'prompt',title, text, images:[{name,mime,size,dataUrl}],
          createdAt, updatedAt }
 ```
 
-`priority` is one of `low | normal | high | urgent`. `status` is the id of one
-of the status definitions (§5.1).
+`priority` is the TODO's **urgency**, one of `low | normal | high | urgent`;
+`importance` is its **importance**, one of `low | normal | high | critical`.
+The two are independent durable fields, and neither is derivable from the
+other. `priority` keeps its shipped name so every document written before the
+second dimension existed reads unchanged; on the wire it means urgency only,
+while the panel labels the pair's control 优先级 and the dimension 紧急程度.
+`status` is the id of one of the status definitions (§5.1).
+
+**`importance` is additive, and a document written without it reads as
+`normal`.** An old item has only the one dimension it was written with, so the
+new field cannot be back-filled from it: a low-urgency task may be the most
+important thing on the list, and inventing a value would file it in a quadrant
+the user never chose. The read therefore supplies the default, the first edit
+writes the pair, and no schema bump is needed because the missing key is a
+defined state rather than corruption. A TODO is refiled through the same matrix
+whether it predates the field or not (§8.6), and `importance` is in the §5 key
+list the Client checks, so an older Host names the field it dropped instead of
+losing half a save in silence.
 
 **`status` replaced `done`, and the boolean is gone.** A TODO's completion used
 to be one bit, which is a shape the panel can show but not one a person can
@@ -167,8 +183,8 @@ boolean is dropped from the stored shape on the next write. A patch carrying
 `done` and no `status` — an older Client — is mapped the same way, so a stale
 panel still writes a completion rather than silently dropping it. An unknown
 status id is **rejected** with a message naming `status`, on the same terms as
-an unknown `kind` or `priority`: there is no defensible default for a status
-nobody defined.
+an unknown `kind`, `priority` or `importance`: there is no defensible default
+for a status nobody defined.
 
 **`completedAt` is an ISO timestamp owned by the Host, and it is derived from
 the status rather than accepted from a patch.** A TODO is *finished* when the
@@ -204,21 +220,21 @@ the title *summarises* the content, so a short task is a title on its own and
 forcing a body onto it would be inventing a second way of saying the same
 thing. Both fields are content, so a patch may set or clear either. **One of the
 two has to be non-blank** — an item with neither names nothing, lists as a blank
-row and opens as an empty dialog — so that is the third rejection that fires on
-a well-formed-looking payload, after an unknown `kind` and an unknown
-`priority`. It is enforced on the read path too, which costs nothing: every
-stored item passed the same rule that admitted it.
+row and opens as an empty dialog — so that is the rejection that fires on a
+well-formed-looking payload after an unknown `kind`, an unknown `priority` and
+an unknown `importance`. It is enforced on the read path too, which costs
+nothing: every stored item passed the same rule that admitted it.
 
 `create` **carries `kind` explicitly** — the Client always knows which tab the
 draft came from, so there is nothing for the Host to infer, and a Host-side
 guess would have to be a heuristic over field shapes. The Host fills `id`,
 `createdAt` and `updatedAt`. `update` carries no `kind`: it is refused there.
 
-The Host validates every write and rejects unknown `kind` or `priority` values
-with an actionable message naming the offending field. Fields outside this
-model are dropped rather than rejected; those two, plus an item whose title and
-content are both blank, are the three rejections that fire on a
-well-formed-looking payload, because none of the three has a defensible
+The Host validates every write and rejects unknown `kind`, `priority` or
+`importance` values with an actionable message naming the offending field.
+Fields outside this model are dropped rather than rejected; those three, plus an
+item whose title and content are both blank, are the four rejections that fire
+on a well-formed-looking payload, because none of the four has a defensible
 default.
 
 ### 5.1 The status enum
@@ -271,7 +287,8 @@ Obsidian's sort menu: **one field + one direction + optional grouping**, each
 radio-selected. It is *not* a comparator chain.
 
 **Fields.** TODO: `名称` `修改日期` `类型`(→category) `大小` `创建日期`
-`标记`(→priority). Note/Prompt: `名称` `修改日期` `大小` `创建日期`.
+`紧急程度`(→priority) `重要程度`(→importance). Note/Prompt: `名称` `修改日期`
+`大小` `创建日期`.
 
 `名称` is the **derived** display name: the item's `title` when it has one,
 otherwise the first line of its content. Sorting by it therefore sorts by the
@@ -285,10 +302,11 @@ the user edits, and the name derived for display — so the menu keeps `名称` 
 the form carries `标题`.
 
 **Direction.** `递增` / `递减`, ascending = name A→Z, date old→new, size
-small→large, priority low→high. Descending inverts.
+small→large, each priority dimension low→high (`low → normal → high → urgent`
+and `low → normal → high → critical`). Descending inverts.
 
-**Grouping.** `分组依据`: TODO → `无 / 类别 / 优先级`; Note & Prompt →
-`无 / 含图片 / 纯文字`.
+**Grouping.** `分组依据`: TODO → `无 / 类别 / 紧急程度 / 重要程度`; Note &
+Prompt → `无 / 含图片 / 纯文字`.
 
 Obsidian's `完成状态` is **not offered in the TODO menu**: the panel's own
 completion enum (§5.1) is the frame the list is built in — see *Regions* below,
@@ -475,9 +493,12 @@ and transition in the panel; no state depends on one to be legible.
 
 ### 8.3 The status badge
 
-A status is a **colour**, not a label. The badge is the one place in the panel
+A status is a **colour**, not a label. The badge is the panel's primary place
 where colour carries meaning rather than decoration, so it is the one place
-allowed to mix two colours.
+allowed to mix two colours into a new one. The priority matrix (§8.6) is the
+other meaningful-colour surface, and it uses one wash per quadrant rather than
+a two-token mix — the two do not compete: the badge says *state*, the matrix
+says *quadrant*.
 
 - **Two tokens, one mix.** A status's `tone` names a *pair* of design tokens
   (`--hub-status-a` and `--hub-status-b`): a wash of the first is laid across
@@ -560,6 +581,43 @@ no line clamp of its own.
 - **It is decorative for the assistive layer.** The preview is `aria-hidden`;
   the row already carries its name, and the detail dialog remains the
   accessible surface for the full text.
+
+### 8.6 The priority matrix
+
+The TODO form's priority control is one **Eisenhower matrix**, not two radio
+rows: a click inside a quadrant sets urgency and importance together, and a
+second click replaces the pair. The doctrine behind it is the four-quadrant
+rule — important and urgent, important but not urgent, not important but urgent,
+neither — and the panel renders those four quadrants with their names and the
+action each implies.
+
+- **Two dimensions, four quadrants, one mark.** `priority` (urgency) is the
+  horizontal axis and `importance` the vertical one. A value at `high` or above
+  is on the high half of its axis; `low` and `normal` are on the low half. The
+  quadrant therefore follows from the pair, and the pair follows from the point
+  clicked: the quadrant picks the half, and the point's position inside it picks
+  one of the two strengths on that half.
+- **A click anywhere in a quadrant is the control.** The four quadrants are
+  `role="radio"` buttons, so the whole quadrant is the hit target and no pixel
+  inside it is dead. A click's coordinates are read against the quadrant's own
+  box; a keyboard activation carries no point and lands on the quadrant's inner
+  pair rather than on a coordinate the browser invented.
+- **A mark is a pair, never half of one.** Re-marking writes both fields in one
+  patch. The user is never asked to set urgency and importance separately.
+- **The current pair is shown twice.** The selected quadrant and a summary line
+  name the quadrant and both values, and a small marker sits at the pair's
+  position on the 4×4 sub-grid. The marker is `aria-hidden` decoration — the
+  radio state and the summary line are the accessible surface.
+- **The four washes are meaningful colour**, like the status badge: a wash of
+  each quadrant's own token (`success`, `error`, `warn`, `idle`) mixed with
+  `--dsw-alias-bg-layer-1`, plus a hairline cross for the four sub-cells. Every
+  colour stays a `--dsw-alias-*` token or a `color-mix()` of tokens; no literal
+  is written, and the matrix follows both themes.
+- **A new TODO opens on `normal / normal`.** An existing item opens on its
+  stored pair, and an item written before `importance` existed opens on the
+  read-time default (`normal`). The matrix sets the draft; the form's confirm is
+  what writes it, like every other field, and the item's chips then show both
+  values.
 
 ## 9. Docking
 

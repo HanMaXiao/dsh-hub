@@ -163,10 +163,11 @@ test('create returns a copy too', () => {
 test('update and remove return the item as it is stored', () => {
   const dir = tempDir()
   const store = open(dir)
-  const created = store.create({ kind: 'todo', description: 'ship it', priority: 'low' })
-  const updated = store.update(created.id, { status: 'done', priority: 'high' })
+  const created = store.create({ kind: 'todo', description: 'ship it', priority: 'low', importance: 'low' })
+  const updated = store.update(created.id, { status: 'done', priority: 'high', importance: 'critical' })
   assert.equal(updated.status, 'done')
   assert.equal(updated.priority, 'high')
+  assert.equal(updated.importance, 'critical')
   assert.equal(updated.createdAt, created.createdAt)
   // `updatedAt` is wall-clock time, so a create and an update inside the same
   // millisecond legitimately share a stamp. What must hold on every machine is
@@ -519,6 +520,21 @@ test('a document written before the status list existed reads as one carrying th
   assert.equal(store.list()[0].status, 'done', 'the item written before the enum reads as the status its boolean meant')
   store.create({ kind: 'note', text: 'later' })
   assert.equal(readDocument(dir).statuses.length, 6, 'the next write persists the definitions')
+})
+
+test('a document written before importance existed reads the default and a write persists it', () => {
+  // `importance` is additive exactly like `title`: the missing key is a defined
+  // state, not corruption, so no schema bump is owed.
+  const dir = tempDir()
+  writeFileSync(path.join(dir, STORE_FILENAME), JSON.stringify({
+    version: SCHEMA_VERSION,
+    items: [{ kind: 'todo', description: 'x', priority: 'high' }],
+  }), 'utf8')
+  const store = open(dir)
+  assert.equal(store.list()[0].importance, 'normal', 'an old item reads as the default')
+  assert.equal(store.list()[0].priority, 'high', 'and keeps the dimension it was written with')
+  store.create({ kind: 'note', text: 'later' })
+  assert.equal(readDocument(dir).items[0].importance, 'normal', 'the next write persists it')
 })
 
 test('a document whose statuses are not an array stops the mount and names the path', () => {
